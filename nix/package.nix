@@ -22,18 +22,22 @@ let
   pname = "hal0";
   version = "1.0.0-rc.5";
 
+  # Hashes are intentionally left as explicit TODO markers rather than fake
+  # values. Run `nix build .#hal0` once with network access; Nix will report the
+  # exact fixed-output hashes to paste here. This prevents a reviewable PR from
+  # pretending that an unbuilt derivation is reproducible.
   src = fetchFromGitHub {
     owner = "purplnecropanda";
     repo = "hal0";
     rev = "main";
-    hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    hash = "sha256-REPLACE_WITH_NIX_HASH";
   };
 
   ui = buildNpmPackage {
     pname = "hal0-ui";
     inherit version src;
     sourceRoot = "source/ui";
-    npmDepsHash = "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=";
+    npmDepsHash = "sha256-REPLACE_WITH_NPM_DEPS_HASH";
     nodejs = nodejs_20;
     npmBuildScript = "build";
   };
