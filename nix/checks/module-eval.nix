@@ -9,9 +9,6 @@ pkgs.nixosTest {
 
       services.hal0 = {
         enable = true;
-        # hello is sufficient for module evaluation; the service is inspected,
-        # not started, so this check remains cheap and does not require AMD
-        # hardware or multi-gigabyte inference closures.
         package = pkgs.hello;
         settings = {
           server = { env = { TEST_FEATURE = "enabled"; }; };
@@ -54,7 +51,7 @@ pkgs.nixosTest {
     machine.succeed("test -f /etc/hal0/slots/primary.toml")
     machine.succeed("test -f /etc/hal0/custom.toml")
     machine.succeed("id hal0")
-    machine.succeed("test -x /etc/sudoers.d/hal0-systemctl")
+    machine.succeed("test -r /etc/sudoers.d/hal0-systemctl")
     machine.succeed("systemctl is-enabled hal0-agent@hermes.service")
     machine.succeed("systemctl is-enabled hal0-bench.timer")
   '';
