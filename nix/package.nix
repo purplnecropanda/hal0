@@ -1,5 +1,4 @@
 { lib
-, buildPythonApplication
 , buildNpmPackage
 , python312Packages
 , nodejs_20
@@ -29,11 +28,8 @@
 let
   pname = "hal0";
   version = "1.0.0-rc.5";
+  buildPythonApplication = python312Packages.buildPythonApplication;
 
-  # The flake packages the checked-out source tree directly. This keeps the
-  # package usable from the repository flake without maintaining a second
-  # source hash that can drift from the flake input. Release tarballs should
-  # switch this to fetchFromGitHub with the release tag/hash.
   src = ./..;
 
   ui = buildNpmPackage {
@@ -81,16 +77,11 @@ buildPythonApplication {
   inherit pname version src;
   pyproject = true;
   dontUseSetuptoolsBuild = true;
-
   build-system = [ python312Packages.hatchling ];
   dependencies = pythonPackages;
   nativeBuildInputs = [ makeWrapper ];
 
   postInstall = ''
-    # Hatchling installs the complete src/hal0 package, including bundled
-    # config/data/templates and all provider/CLI surfaces. Keep an immutable
-    # copy at the paths expected by hal0.config.paths while putting mutable
-    # state under /etc and /var/lib in the NixOS module.
     mkdir -p $out/usr-lib/hal0/current
     cp -a src/hal0/. $out/usr-lib/hal0/current/
 
