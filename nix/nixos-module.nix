@@ -53,13 +53,17 @@ let
     lib.nameValuePair "hal0/slots/${name}.toml" { text = writeToml value; mode = "0644"; }
   ) cfg.slotConfigs;
 
+  agentEtc = lib.mapAttrs' (name: value:
+    lib.nameValuePair "hal0/agents/${name}.toml" { text = writeToml value; mode = "0644"; }
+  ) cfg.agentConfigs;
+
   generatedEtc = {
     "hal0/hal0.toml" = { text = hal0Toml; mode = "0644"; };
     "hal0/providers.toml" = { text = writeToml cfg.providers; mode = "0644"; };
     "hal0/upstreams.toml" = { text = writeToml cfg.upstreams; mode = "0640"; };
     "hal0/profiles.toml" = { text = writeToml cfg.profiles; mode = "0644"; };
     "hal0/capabilities.toml" = { text = writeToml cfg.capabilities; mode = "0644"; };
-  } // slotEtc // cfg.extraConfigFiles;
+  } // slotEtc // agentEtc // cfg.extraConfigFiles;
 
   apiUnit = {
     description = "hal0 API and control plane";
@@ -150,7 +154,6 @@ in
 {
   options.services.hal0 = {
     enable = mkEnableOption "hal0 AI inference platform";
-
     package = mkOption { type = types.package; default = pkgs.hal0; defaultText = lib.literalExpression "pkgs.hal0"; description = "The hal0 package to run."; };
     user = mkOption { type = types.str; default = "hal0"; };
     group = mkOption { type = types.str; default = "hal0"; };
@@ -170,16 +173,13 @@ in
     agentEnvironmentFile = mkOption { type = types.nullOr types.path; default = null; description = "Optional environment file for hal0-agent instances."; };
     extraPackages = mkOption { type = types.listOf types.package; default = []; };
 
-    # The typed options above cover the common NixOS deployment controls. The
-    # complete hal0 TOML schema is deliberately also exposed as arbitrary
-    # attrsets: when upstream adds a config field, it is immediately usable
-    # without waiting for a NixOS-module schema release.
     settings = mkOption { type = types.attrs; default = {}; description = "Additional hal0.toml values, recursively merged with module defaults."; };
     providers = mkOption { type = types.attrs; default = {}; description = "Complete providers.toml contents."; };
     upstreams = mkOption { type = types.attrs; default = {}; description = "Complete upstreams.toml contents."; };
     profiles = mkOption { type = types.attrs; default = {}; description = "Complete profiles.toml contents."; };
     capabilities = mkOption { type = types.attrs; default = {}; description = "Complete capabilities.toml contents."; };
     slotConfigs = mkOption { type = types.attrsOf types.attrs; default = {}; description = "Complete slot TOMLs keyed by slot name."; };
+    agentConfigs = mkOption { type = types.attrsOf types.attrs; default = {}; description = "Complete /etc/hal0/agents/<id>.toml configurations for hal0-agent."; };
     extraConfigFiles = mkOption {
       type = types.attrsOf (types.submodule ({ ... }: {
         options = {
@@ -223,6 +223,7 @@ in
       systemd.tmpfiles.rules = [
         "d /etc/hal0 0755 ${cfg.user} ${cfg.group} - -"
         "d /etc/hal0/slots 0755 ${cfg.user} ${cfg.group} - -"
+        "d /etc/hal0/agents 0755 ${cfg.user} ${cfg.group} - -"
         "d /var/lib/hal0 2775 ${cfg.user} ${cfg.group} - -"
         "d /var/lib/hal0/models 2775 ${cfg.user} ${cfg.group} - -"
         "d /var/lib/hal0/registry 2775 ${cfg.user} ${cfg.group} - -"
