@@ -1,0 +1,43 @@
+name: Nix
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  flake-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v20
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
+      - name: Evaluate flake outputs
+        run: nix flake check --no-build --show-trace
+      - name: Evaluate package
+        run: nix eval .#packages.x86_64-linux.hal0.drvPath --raw
+      - name: Evaluate NixOS module
+        run: nix eval --impure --expr 'let f = builtins.getFlake (toString ./.); pkgs = f.inputs.nixpkgs.legacyPackages.x86_64-linux; in (pkgs.nixosSystem { modules = [ f.nixosModules.default { services.hal0.enable = true; services.hal0.package = pkgs.hello; } ]; }).config.systemd.services.hal0-api.serviceConfig.ExecStart' --show-trace
+
+  source-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Python distribution contract
+        run: |
+          test "$(python3 - <<'PY'
+          import tomllib
+          with open('pyproject.toml','rb') as f:
+              print(tomllib.load(f)['project']['name'])
+          PY
+          )" = hal0ai
+          grep -q 'hal0 = "hal0.cli.main:app"' pyproject.toml
+          grep -q 'hal0-agent = "hal0.cli.agent_shim:main"' pyproject.toml
+      - name: Verify Nix packaging assets
+        run: |
+          test -f ui/package-lock.json
+          test -f installer/wrappers/hal0-systemctl
+          test -f installer/wrappers/hal0-benchctl
+          test -f installer/systemd/hal0-agent@.service
+          test -f installer/systemd/hal0-bench.service
+          test -f installer/systemd/hal0-bench.timer
