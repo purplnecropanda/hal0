@@ -2,32 +2,47 @@
 
 let
   cfg = config.services.hal0;
-  inherit (lib) mkEnableOption mkOption types mkIf mkMerge optional optionals concatStringsSep;
+  inherit (lib) mkEnableOption mkIf mkMerge mkOption optional optionals types;
 
   hal0 = cfg.package;
-  systemctlSeam = "${hal0}/libexec/hal0/hal0-systemctl";
+  seam = "${hal0}/libexec/hal0/hal0-systemctl";
 
-  configText = builtins.toJSON {
-    meta = { schema_version = 1; };
-    slots = {
-      port_range_start = cfg.slotPortRange.start;
-      port_range_end = cfg.slotPortRange.end;
-      publish_host = cfg.slotPublishHost;
-      network_mode = cfg.slotNetworkMode;
-    };
-    dispatcher = {
-      prefetch_timeout_s = cfg.prefetchTimeout;
-      prefetch_parallel_cap = cfg.prefetchParallelCap;
-    };
-    telemetry.enabled = cfg.telemetry;
-    models.store = cfg.modelStore;
-    models.pull_root = cfg.modelStore;
-    models.flm_store = cfg.flmModelStore;
-  };
+  configText = ''
+    [meta]
+    schema_version = 1
 
-  # Generate EnvironmentFile syntax from an attrset while keeping secrets out
-  # of the Nix store whenever callers use normal NixOS secret-file options.
-  envLines = lib.concatStringsSep "\n" (lib.mapAttrsToList (n: v: "${n}=${v}") cfg.environment);
+    [slots]
+    port_range_start = ${toString cfg.slotPortRange.start}
+    port_range_end = ${toString cfg.slotPortRange.end}
+    publish_host = "${cfg.slotPublishHost}"
+    network_mode = "${cfg.slotNetworkMode}"
+
+    [dispatcher]
+    prefetch_timeout_s = ${toString cfg.prefetchTimeout}
+    prefetch_parallel_cap = ${toString cfg.prefetchParallelCap}
+
+    [telemetry]
+    enabled = ${lib.boolToString cfg.telemetry}
+
+    [models]
+    store = "${cfg.modelStore}"
+    pull_root = "${cfg.modelStore}"
+    flm_store = "${cfg.flmModelStore}"
+  '';
+
+  apiEnvironment = {
+    HAL0_PORT = toString cfg.port;
+    HAL0_BIND_HOST = cfg.bindHost;
+    HAL0_UI_DIST = "${hal0}/share/hal0/ui/dist";
+    HAL0_USR_LIB = "${hal0}/usr-lib/hal0/current";
+    HAL0_LIB = "${hal0}/usr-lib/hal0";
+    HAL0_ETC = "/etc/hal0";
+    HAL0_VAR_LIB = "/var/lib/hal0";
+    HAL0_VAR_LOG = "/var/log/hal0";
+    HAL0_MODEL_STORE = cfg.modelStore;
+    HAL0_FLM_MODELS_DIR = cfg.flmModelStore;
+    HAL0_CONTAINER_RUNTIME = "${pkgs.podman}/bin/podman";
+  } // cfg.environment;
 
   apiUnit = {
     description = "hal0 API and control plane";
@@ -35,19 +50,17 @@ let
     wants = [ "network-online.target" ];
     after = [ "network-online.target" "podman.service" ];
     requires = [ "podman.service" ];
-    environment = {
-      HAL0_PORT = toString cfg.port;
-      HAL0_BIND_HOST = cfg.bindHost;
-      HAL0_UI_DIST = "${hal0}/share/hal0/ui/dist";
-      HAL0_USR_LIB = "${hal0}";
-      HAL0_LIB = "${hal0}";
-      HAL0_ETC = "/etc/hal0";
-      HAL0_VAR_LIB = "/var/lib/hal0";
-      HAL0_VAR_LOG = "/var/log/hal0";
-      HAL0_MODEL_STORE = cfg.modelStore;
-      HAL0_FLM_MODELS_DIR = cfg.flmModelStore;
-      HAL0_CONTAINER_RUNTIME = "${pkgs.podman}/bin/podman";
-    } // cfg.environment;
+    environment = apiEnvironment;
+    path = with pkgs; [
+      podman
+      systemd
+      bash
+      coreutils
+      util-linux
+      iproute2
+      pciutils
+      lshw
+    ] ++ cfg.extraPackages;
     serviceConfig = {
       Type = "simple";
       User = cfg.user;
@@ -61,27 +74,25 @@ let
       RuntimeDirectory = "hal0";
       StateDirectory = "hal0";
       LogsDirectory = "hal0";
-      ReadWritePaths = [ "/etc/hal0" "/var/lib/hal0" "/var/log/hal0" "/run/hal0" "/etc/containers/systemd" ];
       UMask = "0027";
+      ReadWritePaths = [
+        "/etc/hal0"
+        "/var/lib/hal0"
+        "/var/log/hal0"
+        "/run/hal0"
+        "/etc/containers/systemd"
+      ];
     };
-    path = with pkgs; [ podman systemd bash coreutils util-linux iproute2 pciutils lshw ] ++ cfg.extraPackages;
   };
 
-  targetUnit = {
-    description = "hal0 inference slots";
-    wants = [ "network-online.target" ];
-    after = [ "network-online.target" ];
-    wantedBy = [ "multi-user.target" ];
-  };
-
-  agentUnit = {
+  agentBase = {
     description = "hal0 agent (%i)";
     after = [ "network-online.target" ];
     wantedBy = [ "multi-user.target" ];
     environment = {
       HAL0_AGENT_ID = "%i";
-      HAL0_USR_LIB = "${hal0}";
-      HAL0_LIB = "${hal0}";
+      HAL0_USR_LIB = "${hal0}/usr-lib/hal0/current";
+      HAL0_LIB = "${hal0}/usr-lib/hal0";
       HAL0_ETC = "/etc/hal0";
       HAL0_VAR_LIB = "/var/lib/hal0";
       HAL0_VAR_LOG = "/var/log/hal0";
@@ -110,16 +121,7 @@ let
       RuntimeDirectoryPreserve = true;
       LogsDirectory = "hal0";
       ReadWritePaths = [ "/etc/hal0" "/var/lib/hal0" "/var/log/hal0" "/run/hal0" ];
-      EnvironmentFile = optionalString (cfg.agentEnvironmentFile != null) cfg.agentEnvironmentFile;
-    };
-  };
-
-  seamUnit = {
-    description = "hal0 privileged systemd/Quadlet seam";
-    serviceConfig = {
-      Type = "oneshot";
-      ExecStart = "${pkgs.coreutils}/bin/true";
-      RemainAfterExit = true;
+      EnvironmentFile = optional cfg.agentEnvironmentFile;
     };
   };
 in
@@ -129,21 +131,9 @@ in
 
     package = mkOption {
       type = types.package;
-      default = pkgs.callPackage ./package.nix {
-        inherit (pkgs) python312Packages nodejs_20 makeWrapper podman systemd bash;
-        # nix-amd-ai packages are exposed through the package's flake input when
-        # the flake is used. For standalone NixOS imports, these are optional
-        # nulls and the runtime remains GPU/NPU agnostic until a slot needs them.
-        fastflowlm = pkgs.fastflowlm or pkgs.hello;
-        xrt = pkgs.xrt or pkgs.hello;
-        xrt-plugin-amdxdna = pkgs.xrt-plugin-amdxdna or pkgs.hello;
-        llama-cpp-vulkan = pkgs.llama-cpp-vulkan or pkgs.llama-cpp;
-        llama-cpp-rocm = pkgs.llama-cpp-rocm or pkgs.llama-cpp;
-        whisper-cpp-vulkan = pkgs.whisper-cpp-vulkan or pkgs.whisper-cpp;
-        stable-diffusion-cpp-vulkan = pkgs.stable-diffusion-cpp-vulkan or pkgs.stable-diffusion-cpp;
-        stable-diffusion-cpp-rocm = pkgs.stable-diffusion-cpp-rocm or pkgs.stable-diffusion-cpp;
-      };
-      description = "hal0 package to run";
+      default = pkgs.hal0;
+      defaultText = lib.literalExpression "pkgs.hal0";
+      description = "The hal0 package to run.";
     };
 
     user = mkOption {
@@ -170,7 +160,7 @@ in
     modelStore = mkOption {
       type = types.path;
       default = "/var/lib/hal0/models";
-      description = "Persistent model store shared with slot containers.";
+      description = "Persistent model store shared with inference containers.";
     };
 
     flmModelStore = mkOption {
@@ -191,7 +181,7 @@ in
     slotNetworkMode = mkOption {
       type = types.str;
       default = "";
-      description = "Podman network mode; empty means bridge networking.";
+      description = "Podman network mode; empty means the default bridge network.";
     };
 
     prefetchTimeout = mkOption {
@@ -217,12 +207,13 @@ in
     environment = mkOption {
       type = types.attrsOf types.str;
       default = { };
-      description = "Additional hal0 API environment variables.";
+      description = "Additional environment variables for hal0-api.";
     };
 
     agentEnvironmentFile = mkOption {
       type = types.nullOr types.path;
       default = null;
+      description = "Optional environment file for hal0-agent instances.";
     };
 
     extraPackages = mkOption {
@@ -231,7 +222,12 @@ in
     };
 
     agents = mkOption {
-      type = types.attrsOf (types.submodule { options.enable = mkOption { type = types.bool; default = true; }; });
+      type = types.attrsOf (types.submodule {
+        options.enable = mkOption {
+          type = types.bool;
+          default = true;
+        };
+      });
       default = { };
       description = "Declaratively enabled hal0-agent instances.";
     };
@@ -240,10 +236,13 @@ in
   config = mkIf cfg.enable (mkMerge [
     {
       assertions = [
-        { assertion = cfg.slotPortRange.start <= cfg.slotPortRange.end; message = "services.hal0.slotPortRange.start must be <= end"; }
+        {
+          assertion = cfg.slotPortRange.start <= cfg.slotPortRange.end;
+          message = "services.hal0.slotPortRange.start must be <= end";
+        }
       ];
 
-      environment.systemPackages = [ hal0 pkgs.podman pkgs.systemd ];
+      environment.systemPackages = [ cfg.package pkgs.podman ];
 
       users.groups.${cfg.group} = { };
       users.users.${cfg.user} = {
@@ -252,7 +251,8 @@ in
         home = "/var/lib/hal0";
         createHome = true;
         shell = "${pkgs.shadow}/bin/nologin";
-        extraGroups = optionals (config.users.groups ? render) [ "render" ] ++ optionals (config.users.groups ? video) [ "video" ];
+        extraGroups = optionals (config.users.groups ? render) [ "render" ]
+          ++ optionals (config.users.groups ? video) [ "video" ];
       };
 
       systemd.tmpfiles.rules = [
@@ -268,36 +268,39 @@ in
 
       environment.etc."hal0/hal0.toml" = {
         mode = "0644";
-        text = builtins.toJSON configText;
+        text = configText;
       };
 
       systemd.services.hal0-api = apiUnit;
-      systemd.targets.hal0 = targetUnit;
-      systemd.services."hal0-agent@" = agentUnit;
+      systemd.targets.hal0 = {
+        description = "hal0 inference slots";
+        wants = [ "network-online.target" ];
+        after = [ "network-online.target" ];
+        wantedBy = [ "multi-user.target" ];
+      };
+      systemd.services."hal0-agent@" = agentBase;
 
-      # The upstream seam script is deliberately invoked through sudo only by
-      # the hal0 service user. Keep the rule exact: no arbitrary systemctl,
-      # no wildcard arguments, no shell.
-      security.sudo.extraRules = [{
-        users = [ cfg.user ];
-        commands = [
-          { command = "${systemctlSeam} write-quadlet *"; options = [ "NOPASSWD" ]; }
-          { command = "${systemctlSeam} remove-quadlet *"; options = [ "NOPASSWD" ]; }
-          { command = "${systemctlSeam} daemon-reload"; options = [ "NOPASSWD" ]; }
-          { command = "${systemctlSeam} start *"; options = [ "NOPASSWD" ]; }
-          { command = "${systemctlSeam} stop *"; options = [ "NOPASSWD" ]; }
-          { command = "${systemctlSeam} restart *"; options = [ "NOPASSWD" ]; }
-          { command = "${systemctlSeam} enable *"; options = [ "NOPASSWD" ]; }
-          { command = "${systemctlSeam} disable *"; options = [ "NOPASSWD" ]; }
-          { command = "${systemctlSeam} reset-failed *"; options = [ "NOPASSWD" ]; }
-          { command = "${systemctlSeam} restart-self"; options = [ "NOPASSWD" ]; }
-        ];
-      }];
+      environment.etc."sudoers.d/hal0-systemctl" = {
+        mode = "0440";
+        text = ''
+          ${cfg.user} ALL=(root) NOPASSWD: ${seam} write-quadlet *
+          ${cfg.user} ALL=(root) NOPASSWD: ${seam} remove-quadlet *
+          ${cfg.user} ALL=(root) NOPASSWD: ${seam} daemon-reload
+          ${cfg.user} ALL=(root) NOPASSWD: ${seam} start *
+          ${cfg.user} ALL=(root) NOPASSWD: ${seam} stop *
+          ${cfg.user} ALL=(root) NOPASSWD: ${seam} restart *
+          ${cfg.user} ALL=(root) NOPASSWD: ${seam} enable *
+          ${cfg.user} ALL=(root) NOPASSWD: ${seam} disable *
+          ${cfg.user} ALL=(root) NOPASSWD: ${seam} reset-failed *
+          ${cfg.user} ALL=(root) NOPASSWD: ${seam} restart-self
+        '';
+      };
     }
-
     {
       systemd.services = lib.mapAttrs' (name: agentCfg:
-        lib.nameValuePair "hal0-agent@${name}" { wantedBy = lib.optional agentCfg.enable "multi-user.target"; }
+        lib.nameValuePair "hal0-agent@${name}" {
+          wantedBy = lib.optional agentCfg.enable "multi-user.target";
+        }
       ) cfg.agents;
     }
   ]);
