@@ -1,6 +1,6 @@
 { pkgs, module }:
 
-pkgs.nixosTest {
+pkgs.testers.nixosTest {
   name = "hal0-module-eval";
 
   nodes.machine = { ... }:
