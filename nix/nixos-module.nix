@@ -7,6 +7,8 @@ let
   hal0 = cfg.package;
   seam = "${hal0}/libexec/hal0/hal0-systemctl";
   benchSeam = "${hal0}/libexec/hal0/hal0-benchctl";
+  etcOwner = if cfg.mutableConfig then cfg.user else "root";
+  etcGroup = if cfg.mutableConfig then cfg.group else "root";
 
   generatedHal0 = {
     meta = { schema_version = 1; };
@@ -30,6 +32,7 @@ let
 
   hal0Toml = lib.generators.toTOML {} (lib.recursiveUpdate generatedHal0 cfg.settings);
   writeToml = value: lib.generators.toTOML {} value;
+  etcFile = text: mode: { inherit text mode; user = etcOwner; group = etcGroup; };
 
   apiEnvironment = {
     HAL0_PORT = toString cfg.port;
@@ -50,19 +53,19 @@ let
   ] ++ cfg.extraPackages;
 
   slotEtc = lib.mapAttrs' (name: value:
-    lib.nameValuePair "hal0/slots/${name}.toml" { text = writeToml value; mode = "0644"; }
+    lib.nameValuePair "hal0/slots/${name}.toml" (etcFile (writeToml value) "0644")
   ) cfg.slotConfigs;
 
   agentEtc = lib.mapAttrs' (name: value:
-    lib.nameValuePair "hal0/agents/${name}.toml" { text = writeToml value; mode = "0644"; }
+    lib.nameValuePair "hal0/agents/${name}.toml" (etcFile (writeToml value) "0644")
   ) cfg.agentConfigs;
 
   generatedEtc = {
-    "hal0/hal0.toml" = { text = hal0Toml; mode = "0644"; };
-    "hal0/providers.toml" = { text = writeToml cfg.providers; mode = "0644"; };
-    "hal0/upstreams.toml" = { text = writeToml cfg.upstreams; mode = "0640"; };
-    "hal0/profiles.toml" = { text = writeToml cfg.profiles; mode = "0644"; };
-    "hal0/capabilities.toml" = { text = writeToml cfg.capabilities; mode = "0644"; };
+    "hal0/hal0.toml" = etcFile hal0Toml "0644";
+    "hal0/providers.toml" = etcFile (writeToml cfg.providers) "0644";
+    "hal0/upstreams.toml" = etcFile (writeToml cfg.upstreams) "0640";
+    "hal0/profiles.toml" = etcFile (writeToml cfg.profiles) "0644";
+    "hal0/capabilities.toml" = etcFile (writeToml cfg.capabilities) "0644";
   } // slotEtc // agentEtc // cfg.extraConfigFiles;
 
   apiUnit = {
@@ -157,6 +160,7 @@ in
     package = mkOption { type = types.package; default = pkgs.hal0; defaultText = lib.literalExpression "pkgs.hal0"; description = "The hal0 package to run."; };
     user = mkOption { type = types.str; default = "hal0"; };
     group = mkOption { type = types.str; default = "hal0"; };
+    mutableConfig = mkOption { type = types.bool; default = true; description = "Whether generated /etc/hal0 files are owned by the hal0 service user so hal0's CLI/config migrations can update them. Set false for strictly declarative read-only configuration."; };
     port = mkOption { type = types.port; default = 8080; };
     bindHost = mkOption { type = types.str; default = "127.0.0.1"; description = "Address the hal0 API binds to."; };
     modelStore = mkOption { type = types.path; default = "/var/lib/hal0/models"; description = "Persistent model store shared with inference containers."; };
