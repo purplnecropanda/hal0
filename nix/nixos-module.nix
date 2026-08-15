@@ -6,29 +6,30 @@ let
 
   hal0 = cfg.package;
   seam = "${hal0}/libexec/hal0/hal0-systemctl";
+  benchSeam = "${hal0}/libexec/hal0/hal0-benchctl";
 
-  configText = ''
-    [meta]
-    schema_version = 1
+  generatedHal0 = {
+    meta = { schema_version = 1; };
+    slots = {
+      port_range_start = cfg.slotPortRange.start;
+      port_range_end = cfg.slotPortRange.end;
+      publish_host = cfg.slotPublishHost;
+      network_mode = cfg.slotNetworkMode;
+    };
+    dispatcher = {
+      prefetch_timeout_s = cfg.prefetchTimeout;
+      prefetch_parallel_cap = cfg.prefetchParallelCap;
+    };
+    telemetry = { enabled = cfg.telemetry; };
+    models = {
+      store = cfg.modelStore;
+      pull_root = cfg.modelStore;
+      flm_store = cfg.flmModelStore;
+    };
+  };
 
-    [slots]
-    port_range_start = ${toString cfg.slotPortRange.start}
-    port_range_end = ${toString cfg.slotPortRange.end}
-    publish_host = "${cfg.slotPublishHost}"
-    network_mode = "${cfg.slotNetworkMode}"
-
-    [dispatcher]
-    prefetch_timeout_s = ${toString cfg.prefetchTimeout}
-    prefetch_parallel_cap = ${toString cfg.prefetchParallelCap}
-
-    [telemetry]
-    enabled = ${lib.boolToString cfg.telemetry}
-
-    [models]
-    store = "${cfg.modelStore}"
-    pull_root = "${cfg.modelStore}"
-    flm_store = "${cfg.flmModelStore}"
-  '';
+  hal0Toml = lib.generators.toTOML {} (lib.recursiveUpdate generatedHal0 cfg.settings);
+  writeToml = value: lib.generators.toTOML {} value;
 
   apiEnvironment = {
     HAL0_PORT = toString cfg.port;
@@ -44,6 +45,22 @@ let
     HAL0_CONTAINER_RUNTIME = "${pkgs.podman}/bin/podman";
   } // cfg.environment;
 
+  commonPath = with pkgs; [
+    podman sudo systemd bash coreutils util-linux iproute2 pciutils lshw procps curl jq git
+  ] ++ cfg.extraPackages;
+
+  slotEtc = lib.mapAttrs' (name: value:
+    lib.nameValuePair "hal0/slots/${name}.toml" { text = writeToml value; mode = "0644"; }
+  ) cfg.slotConfigs;
+
+  generatedEtc = {
+    "hal0/hal0.toml" = { text = hal0Toml; mode = "0644"; };
+    "hal0/providers.toml" = { text = writeToml cfg.providers; mode = "0644"; };
+    "hal0/upstreams.toml" = { text = writeToml cfg.upstreams; mode = "0640"; };
+    "hal0/profiles.toml" = { text = writeToml cfg.profiles; mode = "0644"; };
+    "hal0/capabilities.toml" = { text = writeToml cfg.capabilities; mode = "0644"; };
+  } // slotEtc // cfg.extraConfigFiles;
+
   apiUnit = {
     description = "hal0 API and control plane";
     wantedBy = [ "multi-user.target" ];
@@ -51,16 +68,7 @@ let
     after = [ "network-online.target" "podman.service" ];
     requires = [ "podman.service" ];
     environment = apiEnvironment;
-    path = with pkgs; [
-      podman
-      systemd
-      bash
-      coreutils
-      util-linux
-      iproute2
-      pciutils
-      lshw
-    ] ++ cfg.extraPackages;
+    path = commonPath;
     serviceConfig = {
       Type = "simple";
       User = cfg.user;
@@ -75,13 +83,7 @@ let
       StateDirectory = "hal0";
       LogsDirectory = "hal0";
       UMask = "0027";
-      ReadWritePaths = [
-        "/etc/hal0"
-        "/var/lib/hal0"
-        "/var/log/hal0"
-        "/run/hal0"
-        "/etc/containers/systemd"
-      ];
+      ReadWritePaths = [ "/etc/hal0" "/var/lib/hal0" "/var/log/hal0" "/run/hal0" "/etc/containers/systemd" ];
     };
   };
 
@@ -124,135 +126,98 @@ let
       EnvironmentFile = optional cfg.agentEnvironmentFile;
     };
   };
+
+  benchUnit = {
+    description = "hal0 scheduled benchmark session";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = cfg.user;
+      Group = cfg.group;
+      ExecStart = "${hal0}/bin/hal0 bench run --suite roster --scheduled";
+      TimeoutStartSec = "6h";
+      StandardOutput = "journal";
+      StandardError = "journal";
+      SyslogIdentifier = "hal0-bench";
+      LimitMEMLOCK = cfg.limitMemlock;
+    };
+    environment = apiEnvironment;
+    path = commonPath;
+  };
+
 in
 {
   options.services.hal0 = {
     enable = mkEnableOption "hal0 AI inference platform";
 
-    package = mkOption {
-      type = types.package;
-      default = pkgs.hal0;
-      defaultText = lib.literalExpression "pkgs.hal0";
-      description = "The hal0 package to run.";
-    };
+    package = mkOption { type = types.package; default = pkgs.hal0; defaultText = lib.literalExpression "pkgs.hal0"; description = "The hal0 package to run."; };
+    user = mkOption { type = types.str; default = "hal0"; };
+    group = mkOption { type = types.str; default = "hal0"; };
+    port = mkOption { type = types.port; default = 8080; };
+    bindHost = mkOption { type = types.str; default = "127.0.0.1"; description = "Address the hal0 API binds to."; };
+    modelStore = mkOption { type = types.path; default = "/var/lib/hal0/models"; description = "Persistent model store shared with inference containers."; };
+    flmModelStore = mkOption { type = types.path; default = "/var/lib/hal0/.config/flm/models"; };
+    slotPortRange.start = mkOption { type = types.port; default = 8081; };
+    slotPortRange.end = mkOption { type = types.port; default = 8099; };
+    slotPublishHost = mkOption { type = types.str; default = "127.0.0.1"; };
+    slotNetworkMode = mkOption { type = types.str; default = ""; description = "Podman network mode; empty means the default bridge network."; };
+    prefetchTimeout = mkOption { type = types.ints.positive; default = 8; };
+    prefetchParallelCap = mkOption { type = types.ints.positive; default = 4; };
+    telemetry = mkOption { type = types.bool; default = false; };
+    limitMemlock = mkOption { type = types.str; default = "infinity"; };
+    environment = mkOption { type = types.attrsOf types.str; default = {}; description = "Additional environment variables for hal0-api."; };
+    agentEnvironmentFile = mkOption { type = types.nullOr types.path; default = null; description = "Optional environment file for hal0-agent instances."; };
+    extraPackages = mkOption { type = types.listOf types.package; default = []; };
 
-    user = mkOption {
-      type = types.str;
-      default = "hal0";
-    };
-
-    group = mkOption {
-      type = types.str;
-      default = "hal0";
-    };
-
-    port = mkOption {
-      type = types.port;
-      default = 8080;
-    };
-
-    bindHost = mkOption {
-      type = types.str;
-      default = "127.0.0.1";
-      description = "Address the hal0 API binds to.";
-    };
-
-    modelStore = mkOption {
-      type = types.path;
-      default = "/var/lib/hal0/models";
-      description = "Persistent model store shared with inference containers.";
-    };
-
-    flmModelStore = mkOption {
-      type = types.path;
-      default = "/var/lib/hal0/.config/flm/models";
-    };
-
-    slotPortRange = {
-      start = mkOption { type = types.port; default = 8081; };
-      end = mkOption { type = types.port; default = 8099; };
-    };
-
-    slotPublishHost = mkOption {
-      type = types.str;
-      default = "127.0.0.1";
-    };
-
-    slotNetworkMode = mkOption {
-      type = types.str;
-      default = "";
-      description = "Podman network mode; empty means the default bridge network.";
-    };
-
-    prefetchTimeout = mkOption {
-      type = types.ints.positive;
-      default = 8;
-    };
-
-    prefetchParallelCap = mkOption {
-      type = types.ints.positive;
-      default = 4;
-    };
-
-    telemetry = mkOption {
-      type = types.bool;
-      default = false;
-    };
-
-    limitMemlock = mkOption {
-      type = types.str;
-      default = "infinity";
-    };
-
-    environment = mkOption {
-      type = types.attrsOf types.str;
-      default = { };
-      description = "Additional environment variables for hal0-api.";
-    };
-
-    agentEnvironmentFile = mkOption {
-      type = types.nullOr types.path;
-      default = null;
-      description = "Optional environment file for hal0-agent instances.";
-    };
-
-    extraPackages = mkOption {
-      type = types.listOf types.package;
-      default = [ ];
+    # The typed options above cover the common NixOS deployment controls. The
+    # complete hal0 TOML schema is deliberately also exposed as arbitrary
+    # attrsets: when upstream adds a config field, it is immediately usable
+    # without waiting for a NixOS-module schema release.
+    settings = mkOption { type = types.attrs; default = {}; description = "Additional hal0.toml values, recursively merged with module defaults."; };
+    providers = mkOption { type = types.attrs; default = {}; description = "Complete providers.toml contents."; };
+    upstreams = mkOption { type = types.attrs; default = {}; description = "Complete upstreams.toml contents."; };
+    profiles = mkOption { type = types.attrs; default = {}; description = "Complete profiles.toml contents."; };
+    capabilities = mkOption { type = types.attrs; default = {}; description = "Complete capabilities.toml contents."; };
+    slotConfigs = mkOption { type = types.attrsOf types.attrs; default = {}; description = "Complete slot TOMLs keyed by slot name."; };
+    extraConfigFiles = mkOption {
+      type = types.attrsOf (types.submodule ({ ... }: {
+        options = {
+          text = mkOption { type = types.lines; };
+          mode = mkOption { type = types.str; default = "0644"; };
+        };
+      }));
+      default = {};
+      description = "Additional files under /etc/hal0, for advanced/upstream configuration surfaces.";
     };
 
     agents = mkOption {
-      type = types.attrsOf (types.submodule {
-        options.enable = mkOption {
-          type = types.bool;
-          default = true;
-        };
-      });
-      default = { };
+      type = types.attrsOf (types.submodule { options.enable = mkOption { type = types.bool; default = true; }; });
+      default = {};
       description = "Declaratively enabled hal0-agent instances.";
     };
+
+    enableBench = mkOption { type = types.bool; default = false; description = "Enable hal0's scheduled benchmark service and timer."; };
+    benchSchedule = mkOption { type = types.str; default = "Sun *-*-* 03:00"; description = "systemd OnCalendar expression for the benchmark timer."; };
   };
 
   config = mkIf cfg.enable (mkMerge [
     {
       assertions = [
-        {
-          assertion = cfg.slotPortRange.start <= cfg.slotPortRange.end;
-          message = "services.hal0.slotPortRange.start must be <= end";
-        }
+        { assertion = cfg.slotPortRange.start <= cfg.slotPortRange.end; message = "services.hal0.slotPortRange.start must be <= end"; }
       ];
 
-      environment.systemPackages = [ cfg.package pkgs.podman ];
+      environment.systemPackages = [ cfg.package pkgs.podman pkgs.sudo ];
+      environment.etc = generatedEtc;
 
-      users.groups.${cfg.group} = { };
+      users.groups.${cfg.group} = {};
       users.users.${cfg.user} = {
         isSystemUser = true;
         group = cfg.group;
         home = "/var/lib/hal0";
         createHome = true;
         shell = "${pkgs.shadow}/bin/nologin";
-        extraGroups = optionals (config.users.groups ? render) [ "render" ]
-          ++ optionals (config.users.groups ? video) [ "video" ];
+        extraGroups = optionals (config.users.groups ? render) [ "render" ] ++ optionals (config.users.groups ? video) [ "video" ];
       };
 
       systemd.tmpfiles.rules = [
@@ -262,14 +227,10 @@ in
         "d /var/lib/hal0/models 2775 ${cfg.user} ${cfg.group} - -"
         "d /var/lib/hal0/registry 2775 ${cfg.user} ${cfg.group} - -"
         "d /var/lib/hal0/slots 2775 ${cfg.user} ${cfg.group} - -"
+        "d /var/lib/hal0/agents 2775 ${cfg.user} ${cfg.group} - -"
         "d /var/log/hal0 0755 ${cfg.user} ${cfg.group} - -"
         "d /etc/containers/systemd 0755 root root - -"
       ];
-
-      environment.etc."hal0/hal0.toml" = {
-        mode = "0644";
-        text = configText;
-      };
 
       systemd.services.hal0-api = apiUnit;
       systemd.targets.hal0 = {
@@ -280,28 +241,52 @@ in
       };
       systemd.services."hal0-agent@" = agentBase;
 
-      environment.etc."sudoers.d/hal0-systemctl" = {
-        mode = "0440";
-        text = ''
-          ${cfg.user} ALL=(root) NOPASSWD: ${seam} write-quadlet *
-          ${cfg.user} ALL=(root) NOPASSWD: ${seam} remove-quadlet *
-          ${cfg.user} ALL=(root) NOPASSWD: ${seam} daemon-reload
-          ${cfg.user} ALL=(root) NOPASSWD: ${seam} start *
-          ${cfg.user} ALL=(root) NOPASSWD: ${seam} stop *
-          ${cfg.user} ALL=(root) NOPASSWD: ${seam} restart *
-          ${cfg.user} ALL=(root) NOPASSWD: ${seam} enable *
-          ${cfg.user} ALL=(root) NOPASSWD: ${seam} disable *
-          ${cfg.user} ALL=(root) NOPASSWD: ${seam} reset-failed *
-          ${cfg.user} ALL=(root) NOPASSWD: ${seam} restart-self
-        '';
-      };
+      security.sudo.extraRules = [{
+        users = [ cfg.user ];
+        commands = [
+          { command = "${seam} write-quadlet *"; options = [ "NOPASSWD" ]; }
+          { command = "${seam} remove-quadlet *"; options = [ "NOPASSWD" ]; }
+          { command = "${seam} daemon-reload"; options = [ "NOPASSWD" ]; }
+          { command = "${seam} start *"; options = [ "NOPASSWD" ]; }
+          { command = "${seam} stop *"; options = [ "NOPASSWD" ]; }
+          { command = "${seam} restart *"; options = [ "NOPASSWD" ]; }
+          { command = "${seam} enable *"; options = [ "NOPASSWD" ]; }
+          { command = "${seam} disable *"; options = [ "NOPASSWD" ]; }
+          { command = "${seam} reset-failed *"; options = [ "NOPASSWD" ]; }
+          { command = "${seam} restart-self"; options = [ "NOPASSWD" ]; }
+          { command = "${seam} stop-agent *"; options = [ "NOPASSWD" ]; }
+          { command = "${seam} start-agent *"; options = [ "NOPASSWD" ]; }
+          { command = "${seam} restart-agent *"; options = [ "NOPASSWD" ]; }
+          { command = "${seam} disable-agent *"; options = [ "NOPASSWD" ]; }
+          { command = "${seam} enable-agent *"; options = [ "NOPASSWD" ]; }
+          { command = "${seam} write-gateway-dropin"; options = [ "NOPASSWD" ]; }
+          { command = "${seam} remove-gateway-dropin"; options = [ "NOPASSWD" ]; }
+          { command = "${seam} write-hindsight-dropin"; options = [ "NOPASSWD" ]; }
+          { command = "${seam} remove-hindsight-dropin"; options = [ "NOPASSWD" ]; }
+          { command = "${seam} prune-dnat *"; options = [ "NOPASSWD" ]; }
+        ];
+      }];
     }
     {
       systemd.services = lib.mapAttrs' (name: agentCfg:
-        lib.nameValuePair "hal0-agent@${name}" {
-          wantedBy = lib.optional agentCfg.enable "multi-user.target";
-        }
+        lib.nameValuePair "hal0-agent@${name}" { wantedBy = lib.optional agentCfg.enable "multi-user.target"; }
       ) cfg.agents;
     }
+    (mkIf cfg.enableBench {
+      systemd.services.hal0-bench = benchUnit;
+      systemd.timers.hal0-bench = {
+        wantedBy = [ "timers.target" ];
+        timerConfig = {
+          OnCalendar = cfg.benchSchedule;
+          Persistent = true;
+          RandomizedDelaySec = "15m";
+          Unit = "hal0-bench.service";
+        };
+      };
+      security.sudo.extraRules = [{
+        users = [ cfg.user ];
+        commands = [{ command = "${benchSeam} *"; options = [ "NOPASSWD" ]; }];
+      }];
+    })
   ]);
 }
