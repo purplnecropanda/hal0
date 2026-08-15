@@ -9,39 +9,54 @@
   };
 
   outputs = inputs@{ flake-parts, ... }:
-    flake-parts.lib.mkFlake { inherit inputs; } ({ self, inputs, ... }:
+    flake-parts.lib.mkFlake { inherit inputs; } ({ inputs, ... }:
       {
         systems = [ "x86_64-linux" ];
 
         perSystem = { pkgs, system, ... }:
           let
             amdAiPkgs = inputs.nix-amd-ai.packages.${system};
+            hal0 = pkgs.callPackage ./nix/package.nix {
+              inherit (amdAiPkgs)
+                fastflowlm
+                xrt
+                xrt-plugin-amdxdna
+                llama-cpp-vulkan
+                llama-cpp-rocm
+                whisper-cpp-vulkan
+                stable-diffusion-cpp-vulkan
+                stable-diffusion-cpp-rocm
+                ;
+            };
           in
           {
             packages = {
-              hal0 = pkgs.callPackage ./nix/package.nix {
-                inherit (amdAiPkgs)
-                  fastflowlm
-                  xrt
-                  xrt-plugin-amdxdna
-                  llama-cpp-vulkan
-                  llama-cpp-rocm
-                  whisper-cpp-vulkan
-                  stable-diffusion-cpp-vulkan
-                  stable-diffusion-cpp-rocm
-                  ;
-              };
-              default = self.packages.${system}.hal0;
+              inherit hal0;
+              default = hal0;
             };
 
-            checks = {
-              package = self.packages.${system}.hal0;
-              nixos-module = pkgs.nixos-rebuild;
+            checks.nixos-module = import ./nix/checks/module-eval.nix {
+              inherit pkgs;
+              module = ./nix/nixos-module.nix;
             };
           };
 
         flake = {
           nixosModules.default = import ./nix/nixos-module.nix;
+          overlays.default = final: prev: {
+            hal0 = final.callPackage ./nix/package.nix {
+              inherit (inputs.nix-amd-ai.packages.${final.system})
+                fastflowlm
+                xrt
+                xrt-plugin-amdxdna
+                llama-cpp-vulkan
+                llama-cpp-rocm
+                whisper-cpp-vulkan
+                stable-diffusion-cpp-vulkan
+                stable-diffusion-cpp-rocm
+                ;
+            };
+          };
         };
       });
 }
