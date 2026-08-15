@@ -23,6 +23,12 @@ pkgs.nixosTest {
           device = "cpu";
           model.default = "test-model";
         };
+        agentConfigs.hermes = {
+          type = "hermes";
+          host = "127.0.0.1";
+          port = 9119;
+          serve_args = [ "--host" "127.0.0.1" ];
+        };
         extraConfigFiles."custom.toml" = {
           mode = "0640";
           text = ''
@@ -49,6 +55,7 @@ pkgs.nixosTest {
     machine.succeed("test -f /etc/hal0/profiles.toml")
     machine.succeed("test -f /etc/hal0/capabilities.toml")
     machine.succeed("test -f /etc/hal0/slots/primary.toml")
+    machine.succeed("test -f /etc/hal0/agents/hermes.toml")
     machine.succeed("test -f /etc/hal0/custom.toml")
     machine.succeed("id hal0")
     machine.succeed("test -r /etc/sudoers.d/hal0-systemctl")
