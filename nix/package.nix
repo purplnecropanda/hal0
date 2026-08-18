@@ -54,7 +54,6 @@ let
     httptools
     watchfiles
     websockets
-    python-dotenv
     httpx
     pydantic
     pydantic-settings
@@ -67,8 +66,6 @@ let
     pyyaml
     psutil
     packaging
-    sentry-sdk
-    guidellm
   ];
 in
 
@@ -94,9 +91,6 @@ buildPythonApplication {
     cp -a installer/wrappers/. $out/libexec/hal0/
     chmod 0755 $out/libexec/hal0/*
 
-    # The application uses the upstream FHS path contract through
-    # HAL0_LIB=/usr/lib/hal0 (or the Nix store equivalent). Keep the same
-    # /usr/lib/hal0/bin helper layout in the Nix-store shipped tree.
     mkdir -p $out/usr-lib/hal0/bin
     for helper in $out/libexec/hal0/*; do
       [ -f "$helper" ] || continue
