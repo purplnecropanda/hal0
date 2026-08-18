@@ -17,7 +17,9 @@ jobs:
       - name: Evaluate package
         run: nix eval .#packages.x86_64-linux.hal0.drvPath --raw
       - name: Evaluate NixOS module
-        run: nix eval --impure --expr 'let f = builtins.getFlake (toString ./.); pkgs = f.inputs.nixpkgs.legacyPackages.x86_64-linux; in (pkgs.nixosSystem { modules = [ f.nixosModules.default { services.hal0.enable = true; services.hal0.package = pkgs.hello; } ]; }).config.systemd.services.hal0-api.serviceConfig.ExecStart' --show-trace
+        run: nix eval --impure --expr 'let f = builtins.getFlake (toString ./.); pkgs = f.inputs.nixpkgs.legacyPackages.x86_64-linux; in (pkgs.nixosSystem { modules = [ f.nixosModules.default { services.hal0.enable = true; services.hal0.package = pkgs.hello; services.hal0.hindsight.enable = false; services.hal0.openwebui.enable = false; services.hal0.hermes.enable = false; services.hal0.benchWorker.enable = false; } ]; }).config.systemd.services.hal0-api.serviceConfig.ExecStart' --show-trace
+      - name: Build hal0 package
+        run: nix build .#hal0 --no-link --print-build-logs
 
   source-contract:
     runs-on: ubuntu-latest
@@ -41,3 +43,8 @@ jobs:
           test -f installer/systemd/hal0-agent@.service
           test -f installer/systemd/hal0-bench.service
           test -f installer/systemd/hal0-bench.timer
+          test -f installer/systemd/hindsight-api.service
+          test -f packaging/systemd/hal0-openwebui.service
+          test -f installer/etc-hal0/profiles.toml
+          test -d installer/etc-hal0/slots
+          test -f installer/comfyui/extra_model_paths.yaml
