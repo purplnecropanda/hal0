@@ -83,6 +83,11 @@ buildPythonApplication {
   postInstall = ''
     mkdir -p $out/usr-lib/hal0/current
     cp -a src/hal0/. $out/usr-lib/hal0/current/
+    # Runtime code treats /usr/lib/hal0/current as a shipped release tree,
+    # not merely a Python site-packages directory. Preserve release metadata
+    # consumed by hardware/toolbox/update paths alongside the module itself.
+    cp -a manifest.json $out/usr-lib/hal0/current/manifest.json
+    cp -a pyproject.toml $out/usr-lib/hal0/current/pyproject.toml
 
     mkdir -p $out/share/hal0/ui $out/share/hal0/systemd $out/share/hal0/etc-hal0 $out/share/hal0/comfyui $out/libexec/hal0
     cp -a ${ui}/dist $out/share/hal0/ui/dist
