@@ -1,0 +1,4 @@
+{ ... }:
+{
+  imports = [ ./companion-module.nix ];
+}
