@@ -37,7 +37,7 @@ let
     pname = "hal0-ui";
     inherit version src;
     sourceRoot = "source/ui";
-    npmDepsHash = "sha256-REPLACE_WITH_NPM_DEPS_HASH";
+    npmDepsHash = lib.fakeHash;
     nodejs = nodejs_24;
     npmBuildScript = "build";
     installPhase = ''
