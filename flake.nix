@@ -42,7 +42,14 @@
           };
 
         flake = {
-          nixosModules.default = import ./nix/nixos-module.nix;
+          nixosModules.default = {
+            imports = [
+              ./nix/nixos-module.nix
+              ./nix/companion-module.nix
+            ];
+          };
+          nixosModules.core = import ./nix/nixos-module.nix;
+          nixosModules.companions = import ./nix/companion-module.nix;
           overlays.default = final: prev: {
             hal0 = final.callPackage ./nix/package.nix {
               inherit (inputs.nix-amd-ai.packages.${final.system})
