@@ -39,6 +39,13 @@
               inherit pkgs;
               module = ./nix/nixos-module.nix;
             };
+
+            checks.nixos-default-module = import ./nix/checks/module-eval.nix {
+              inherit pkgs;
+              module = {
+                imports = [ ./nix/nixos-module.nix ./nix/companion-module.nix ];
+              };
+            };
           };
 
         flake = {
