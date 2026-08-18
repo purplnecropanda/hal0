@@ -45,7 +45,7 @@
               module = {
                 imports = [
                   ./nix/nixos-module.nix
-                  ./nix/companion-module.nix
+                  ./nix/companion-module-fixed.nix
                   ./nix/mutable-config.nix
                   ./nix/companion-overrides.nix
                   ./nix/companion-runtime.nix
@@ -61,7 +61,7 @@
           nixosModules.default = {
             imports = [
               ./nix/nixos-module.nix
-              ./nix/companion-module.nix
+              ./nix/companion-module-fixed.nix
               ./nix/mutable-config.nix
               ./nix/companion-overrides.nix
               ./nix/companion-runtime.nix
@@ -73,7 +73,7 @@
           nixosModules.core = import ./nix/nixos-module.nix;
           nixosModules.companions = {
             imports = [
-              ./nix/companion-module.nix
+              ./nix/companion-module-fixed.nix
               ./nix/mutable-config.nix
               ./nix/companion-overrides.nix
               ./nix/companion-runtime.nix
