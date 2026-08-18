@@ -43,7 +43,11 @@
             checks.nixos-default-module = import ./nix/checks/module-eval.nix {
               inherit pkgs;
               module = {
-                imports = [ ./nix/nixos-module.nix ./nix/companion-module.nix ];
+                imports = [
+                  ./nix/nixos-module.nix
+                  ./nix/companion-module.nix
+                  ./nix/mutable-config.nix
+                ];
               };
             };
           };
@@ -53,10 +57,13 @@
             imports = [
               ./nix/nixos-module.nix
               ./nix/companion-module.nix
+              ./nix/mutable-config.nix
             ];
           };
           nixosModules.core = import ./nix/nixos-module.nix;
-          nixosModules.companions = import ./nix/companion-module.nix;
+          nixosModules.companions = {
+            imports = [ ./nix/companion-module.nix ./nix/mutable-config.nix ];
+          };
           overlays.default = final: prev: {
             hal0 = final.callPackage ./nix/package.nix {
               inherit (inputs.nix-amd-ai.packages.${final.system})
