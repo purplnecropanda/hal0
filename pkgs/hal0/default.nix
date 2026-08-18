@@ -1,21 +1,21 @@
 { lib
-, buildNpmPackage
-, importNpmLock
-, python312Packages
-, nodejs_24
+, stdenvNoCC
 , makeWrapper
-, podman
-, systemd
-, bash
 , coreutils
-, util-linux
 , curl
-, jq
 , git
-, pciutils
+, jq
 , lshw
+, pciutils
+, podman
 , procps
 , sudo
+, systemd
+, util-linux
+, python
+, hal0-core
+, hal0-ui
+, hal0-assets
 , fastflowlm
 , xrt
 , xrt-plugin-amdxdna
@@ -26,93 +26,62 @@
 , stable-diffusion-cpp-rocm
 }:
 
-let
+stdenvNoCC.mkDerivation {
   pname = "hal0";
   version = "1.0.0-rc.6";
-  buildPythonApplication = python312Packages.buildPythonApplication;
-  python = python312Packages.python;
-  src = ./../..;
-
-  ui = buildNpmPackage {
-    pname = "hal0-ui";
-    version = version;
-    src = ./../../ui;
-    npmDeps = importNpmLock { npmRoot = ./../../ui; };
-    npmConfigHook = importNpmLock.npmConfigHook;
-    nodejs = nodejs_24;
-    npmBuildScript = "build";
-    installPhase = ''
-      runHook preInstall
-      mkdir -p $out/dist
-      cp -r dist/. $out/dist/
-      runHook postInstall
-    '';
-  };
-
-  pythonPackages = with python312Packages; [
-    fastapi uvicorn uvloop httptools watchfiles websockets httpx
-    pydantic pydantic-settings typer structlog tomli-w rich mcp jinja2
-    pyyaml psutil packaging
-  ];
-in
-buildPythonApplication {
-  inherit pname version src;
-  pyproject = true;
-  dontUseSetuptoolsBuild = true;
-  build-system = [ python312Packages.hatchling ];
-  dependencies = pythonPackages;
+  dontUnpack = true;
   nativeBuildInputs = [ makeWrapper ];
 
-  postInstall = ''
-    mkdir -p $out/usr-lib/hal0/current
-    cp -a src/hal0/. $out/usr-lib/hal0/current/
-    cp -a manifest.json $out/usr-lib/hal0/current/manifest.json
-    cp -a pyproject.toml $out/usr-lib/hal0/current/pyproject.toml
-    cp -a installer $out/usr-lib/hal0/current/installer
+  installPhase = ''
+    runHook preInstall
 
-    mkdir -p $out/share/hal0/ui $out/share/hal0/systemd $out/share/hal0/etc-hal0 $out/share/hal0/comfyui $out/libexec/hal0
-    cp -a ${ui}/dist $out/share/hal0/ui/dist
-    cp -a installer/systemd/. $out/share/hal0/systemd/
-    cp -a installer/etc-hal0/. $out/share/hal0/etc-hal0/
-    cp -a installer/comfyui/. $out/share/hal0/comfyui/
-    cp -a installer/wrappers/. $out/libexec/hal0/
-    chmod 0755 $out/libexec/hal0/*
+    mkdir -p $out/bin $out/usr-lib/hal0 $out/share/hal0 $out/libexec
+    ln -s ${hal0-core}/* $out/
+    mkdir -p $out/usr-lib/hal0
+    ln -s ${hal0-assets}/usr-lib/hal0/current $out/usr-lib/hal0/current
+    ln -s ${hal0-assets}/usr-lib/hal0/bin $out/usr-lib/hal0/bin
+    mkdir -p $out/share/hal0
+    ln -s ${hal0-assets}/share/hal0/systemd $out/share/hal0/systemd
+    ln -s ${hal0-assets}/share/hal0/etc-hal0 $out/share/hal0/etc-hal0
+    ln -s ${hal0-assets}/share/hal0/comfyui $out/share/hal0/comfyui
+    ln -s ${hal0-assets}/libexec/hal0 $out/libexec/hal0-assets
+    mkdir -p $out/share/hal0
+    ln -s ${hal0-ui}/dist $out/share/hal0/ui-dist
 
-    substituteInPlace $out/libexec/hal0/hal0-agentenv \
-      --replace-fail 'python3 -c' '${python}/bin/python -c'
-
-    mkdir -p $out/usr-lib/hal0/bin
-    for helper in $out/libexec/hal0/*; do
-      [ -f "$helper" ] || continue
-      ln -s "$helper" "$out/usr-lib/hal0/bin/$(basename "$helper")"
-    done
-
-    # Keep the base package lightweight: accelerator runtimes are exposed via
-    # passthru and consumed by the feature-specific NixOS modules/services.
+    rm -f $out/bin/hal0 $out/bin/hal0-agent
     runtimePath=${lib.makeBinPath [
-      podman sudo systemd bash coreutils util-linux curl jq git pciutils lshw procps python
+      podman sudo systemd coreutils util-linux curl jq git pciutils lshw procps python
     ]}
 
-    wrapProgram $out/bin/hal0 \
+    makeWrapper ${hal0-core}/bin/hal0 $out/bin/hal0 \
       --set-default HAL0_USR_LIB "$out/usr-lib/hal0/current" \
       --set-default HAL0_LIB "$out/usr-lib/hal0" \
-      --set-default HAL0_UI_DIST "$out/share/hal0/ui/dist" \
+      --set-default HAL0_UI_DIST "$out/share/hal0/ui-dist" \
       --prefix PATH : "$runtimePath"
 
-    wrapProgram $out/bin/hal0-agent \
+    makeWrapper ${hal0-core}/bin/hal0-agent $out/bin/hal0-agent \
       --set-default HAL0_USR_LIB "$out/usr-lib/hal0/current" \
       --set-default HAL0_LIB "$out/usr-lib/hal0" \
-      --set-default HAL0_UI_DIST "$out/share/hal0/ui/dist" \
+      --set-default HAL0_UI_DIST "$out/share/hal0/ui-dist" \
       --prefix PATH : "$runtimePath"
+
+    cat > $out/share/hal0/runtime-nix-paths <<EOF
+# Feature runtimes are intentionally separate from the base closure.
+FASTFLOWLM=${fastflowlm}
+XRT=${xrt}
+XRT_PLUGIN_AMDXDNA=${xrt-plugin-amdxdna}
+LLAMA_CPP_VULKAN=${llama-cpp-vulkan}
+LLAMA_CPP_ROCM=${llama-cpp-rocm}
+WHISPER_CPP_VULKAN=${whisper-cpp-vulkan}
+STABLE_DIFFUSION_CPP_VULKAN=${stable-diffusion-cpp-vulkan}
+STABLE_DIFFUSION_CPP_ROCM=${stable-diffusion-cpp-rocm}
+EOF
+
+    runHook postInstall
   '';
 
   passthru = {
-    inherit ui;
-    systemdUnits = "$out/share/hal0/systemd";
-    installerAssets = "$out/share/hal0/etc-hal0";
-    installerRoot = "$out/usr-lib/hal0/current/installer";
-    comfyuiAssets = "$out/share/hal0/comfyui";
-    privilegedWrappers = "$out/libexec/hal0";
+    inherit hal0-core hal0-ui hal0-assets;
     amdAiRuntime = {
       inherit fastflowlm xrt xrt-plugin-amdxdna llama-cpp-vulkan llama-cpp-rocm
         whisper-cpp-vulkan stable-diffusion-cpp-vulkan stable-diffusion-cpp-rocm;
@@ -124,6 +93,6 @@ buildPythonApplication {
     homepage = "https://hal0.dev";
     license = lib.licenses.asl20;
     mainProgram = "hal0";
-    platforms = [ "x86_64-linux" ];
+    platforms = lib.platforms.linux;
   };
 }
