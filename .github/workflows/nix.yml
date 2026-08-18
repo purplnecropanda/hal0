@@ -27,6 +27,8 @@ jobs:
             package:
               - 'flake.nix'
               - 'flake.lock'
+              - 'pkgs/**'
+              - 'modules/**'
               - 'nix/**'
               - 'pyproject.toml'
               - 'uv.lock'
@@ -39,6 +41,7 @@ jobs:
   validate:
     name: Nix evaluation
     needs: changes
+    if: needs.changes.outputs.package == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -53,7 +56,7 @@ jobs:
       - name: Restore and save Nix store
         uses: nix-community/cache-nix-action@v7
         with:
-          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.nix', 'nix/**/*.nix') }}
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.nix', 'flake.lock', 'pkgs/**/*.nix', 'modules/**/*.nix', 'nix/**/*.nix') }}
           restore-prefixes-first-match: nix-${{ runner.os }}-
           gc-max-store-size-linux: 4294967296
 
@@ -126,7 +129,7 @@ jobs:
       - name: Restore and save Nix store
         uses: nix-community/cache-nix-action@v7
         with:
-          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.nix', 'nix/**/*.nix') }}
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.nix', 'flake.lock', 'pkgs/**/*.nix', 'modules/**/*.nix', 'nix/**/*.nix') }}
           restore-prefixes-first-match: nix-${{ runner.os }}-
           gc-max-store-size-linux: 4294967296
 
