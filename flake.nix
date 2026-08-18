@@ -50,6 +50,7 @@
                   ./nix/companion-overrides.nix
                   ./nix/companion-runtime.nix
                   ./nix/host-runtime.nix
+                  ./nix/wrapper-sudo.nix
                 ];
               };
             };
@@ -64,6 +65,7 @@
               ./nix/companion-overrides.nix
               ./nix/companion-runtime.nix
               ./nix/host-runtime.nix
+              ./nix/wrapper-sudo.nix
             ];
           };
           nixosModules.core = import ./nix/nixos-module.nix;
@@ -74,6 +76,7 @@
               ./nix/companion-overrides.nix
               ./nix/companion-runtime.nix
               ./nix/host-runtime.nix
+              ./nix/wrapper-sudo.nix
             ];
           };
           overlays.default = final: prev: {
