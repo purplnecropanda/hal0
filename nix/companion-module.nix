@@ -1,4 +1,4 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, modulesPath, ... }:
 
 let
   cfg = config.services.hal0;
@@ -23,7 +23,7 @@ let
 in
 {
   imports = [
-    (pkgs.path + "/nixos/modules/virtualisation/oci-containers.nix")
+    (modulesPath + "/virtualisation/oci-containers.nix")
   ];
 
   options.services.hal0 = {
@@ -186,9 +186,6 @@ in
 
     environment.systemPackages = lib.optional he.enable pkgs.podman;
 
-    # The core module deliberately keeps service construction small. Run the
-    # installed hal0 executable itself so the full packaged dependency closure
-    # and its path wrappers are used by API/CLI operations.
     systemd.services.hal0-api.serviceConfig.ExecStart = lib.mkForce "${cfg.package}/bin/hal0 serve --port ${toString cfg.port}";
 
     systemd.tmpfiles.rules = [
@@ -353,13 +350,9 @@ in
             HINDSIGHT_API_LLM_API_KEY = "hal0-local-noauth";
             HINDSIGHT_API_LLM_TIMEOUT = toString h.timeout;
             HINDSIGHT_API_SKIP_LLM_VERIFICATION = "true";
-            HINDSIGHT_API_EMBEDDINGS_LOCAL_FORCE_CPU = "true";
-            HINDSIGHT_API_RERANKER_LOCAL_FORCE_CPU = "true";
-            HF_HOME = "/home/hindsight/hf-cache";
+          } // lib.optionalAttrs (h.environmentFile != null) {
+            HINDSIGHT_ENVIRONMENT_FILE = h.environmentFile;
           };
-          environmentFiles = lib.optional (h.environmentFile != null) h.environmentFile;
-          cmd = [ "--host" "0.0.0.0" "--port" (toString h.port) ];
-          extraOptions = [ "--add-host=${hostGateway}" ];
         };
       })
       (lib.mkIf ow.enable {
@@ -369,145 +362,36 @@ in
           ports = [ "${ow.bindHost}:3001:8080" ];
           volumes = [ "${ow.dataDir}:/app/backend/data:rw" ];
           environment = {
-            OPENAI_API_BASE_URLS = "http://host.docker.internal:${toString cfg.port}/v1";
-            WEBUI_AUTH = if ow.trustedEmailHeader == null then "False" else "True";
-            WEBUI_NAME = "hal0";
-            ENABLE_OPENAI_API = "True";
-            ENABLE_OLLAMA_API = "False";
-            ENABLE_PERSISTENT_CONFIG = "False";
-            DATA_DIR = "/app/backend/data";
-            DEFAULT_LOCALE = "en";
-            AUDIO_STT_ENGINE = "openai";
-            AUDIO_STT_OPENAI_API_BASE_URL = "http://host.docker.internal:${toString cfg.port}/v1";
-            AUDIO_STT_OPENAI_API_KEY = "sk-hal0-local";
-            AUDIO_STT_MODEL = "whisper-v3:turbo";
-            AUDIO_TTS_ENGINE = "openai";
-            AUDIO_TTS_OPENAI_API_BASE_URL = "http://host.docker.internal:${toString cfg.port}/v1";
-            AUDIO_TTS_OPENAI_API_KEY = "sk-hal0-local";
-            AUDIO_TTS_MODEL = "kokoro-v1";
-            AUDIO_TTS_VOICE = "af_heart";
+            WEBUI_AUTH = if ow.trustedEmailHeader != null then "true" else "false";
           } // lib.optionalAttrs (ow.trustedEmailHeader != null) {
             WEBUI_AUTH_TRUSTED_EMAIL_HEADER = ow.trustedEmailHeader;
           };
-          extraOptions = [ "--add-host=${hostGateway}" "--security-opt" "apparmor=unconfined" ];
         };
       })
       (lib.mkIf he.enable {
         hal0-hermes = {
           image = he.image;
           autoStart = true;
-          ports = [ "${he.bindHost}:${toString he.dashboardPort}:9119" ] ++ lib.optional he.apiServer.enable "${he.bindHost}:${toString he.apiPort}:8642";
-          volumes = [
-            "${he.dataDir}:/opt/data:rw"
-            "/etc/hal0/hermes/config.yaml:/opt/data/config.yaml:ro"
-            "/var/lib/hal0/skills:/opt/data/skills:rw"
-          ];
+          ports = [ "${he.bindHost}:${toString he.dashboardPort}:${toString he.dashboardPort}" ];
+          volumes = [ "${he.dataDir}:/opt/data:rw" ];
           environment = {
-            HERMES_DASHBOARD = "1";
-            HERMES_DASHBOARD_HOST = "0.0.0.0";
-            HERMES_DASHBOARD_INSECURE = "1";
-            API_SERVER_ENABLED = lib.boolToString he.apiServer.enable;
-            API_SERVER_HOST = "0.0.0.0";
-            API_SERVER_PORT = toString he.apiPort;
-            HINDSIGHT_API_URL = "http://host.docker.internal:${toString h.port}";
-            HINDSIGHT_TIMEOUT = "60";
+            HERMES_CONFIG = "/etc/hal0/hermes/config.yaml";
           };
-          environmentFiles = lib.optional (he.apiServer.enable && he.apiServer.apiKeyFile != null) he.apiServer.apiKeyFile;
-          cmd = [ "gateway" "run" ];
           extraOptions = [ "--add-host=${hostGateway}" ];
         };
       })
+      (lib.mkIf bw.enable {
+        hal0-bench-worker = {
+          image = he.image;
+          autoStart = true;
+          volumes = [ "/var/lib/hal0:/var/lib/hal0:rw" ];
+          environment = {
+            HERMES_CONFIG = "/etc/hal0/hermes/config.yaml";
+          };
+          extraOptions = [ "--add-host=${hostGateway}" ];
+          cmd = [ "python" "-m" "hermes_agent.bench_worker" ];
+        };
+      })
     ];
-
-    assertions = [
-      {
-        assertion = !he.apiServer.enable || he.apiServer.apiKeyFile != null;
-        message = "services.hal0.hermes.apiServer.apiKeyFile must be set when services.hal0.hermes.apiServer.enable is true.";
-      }
-    ];
-
-    # Stable unit names expected by the hal0 runtime/CLI while the underlying
-    # OCI module owns container lifecycle.
-    systemd.services.hindsight-api = lib.mkIf h.enable {
-      description = "hal0 Hindsight API companion";
-      after = [ "podman-halo0-hindsight.service" "podman-hal0-hindsight.service" "hal0-api.service" ];
-      wantedBy = [ "multi-user.target" ];
-      serviceConfig = {
-        Type = "oneshot";
-        ExecStart = "${pkgs.systemd}/bin/systemctl start podman-hal0-hindsight.service";
-        ExecStop = "${pkgs.systemd}/bin/systemctl stop podman-hal0-hindsight.service";
-        RemainAfterExit = true;
-      };
-    };
-
-    systemd.services.hal0-openwebui = lib.mkIf ow.enable {
-      description = "hal0 OpenWebUI companion service";
-      after = [ "podman-hal0-openwebui.service" "hal0-api.service" ];
-      wants = [ "hal0-api.service" ];
-      wantedBy = [ "multi-user.target" ];
-      serviceConfig = {
-        Type = "oneshot";
-        ExecStart = "${pkgs.systemd}/bin/systemctl start podman-hal0-openwebui.service";
-        ExecStop = "${pkgs.systemd}/bin/systemctl stop podman-hal0-openwebui.service";
-        RemainAfterExit = true;
-      };
-    };
-
-    systemd.services.hal0-hermes = lib.mkIf he.enable {
-      description = "hal0 Hermes Agent companion service";
-      after = [ "podman-hal0-hermes.service" "hal0-api.service" ];
-      wants = [ "hal0-api.service" ];
-      wantedBy = [ "multi-user.target" ];
-      serviceConfig = {
-        Type = "oneshot";
-        ExecStart = "${pkgs.systemd}/bin/systemctl start podman-hal0-hermes.service";
-        ExecStop = "${pkgs.systemd}/bin/systemctl stop podman-hal0-hermes.service";
-        RemainAfterExit = true;
-      };
-    };
-
-    systemd.services.hal0-bench-worker = lib.mkIf bw.enable {
-      description = "hal0 benchmark run-queue worker";
-      after = [ "network-online.target" "hal0-api.service" ];
-      wants = [ "network-online.target" "hal0-api.service" ];
-      wantedBy = [ "multi-user.target" ];
-      environment = {
-        PYTHONUNBUFFERED = "1";
-        HAL0_PORT = toString cfg.port;
-        HAL0_BIND_HOST = cfg.bindHost;
-        HAL0_ETC = "/etc/hal0";
-        HAL0_VAR_LIB = "/var/lib/hal0";
-        HAL0_MODEL_STORE = cfg.modelStore;
-        HAL0_CONTAINER_RUNTIME = "${pkgs.podman}/bin/podman";
-      } // cfg.environment;
-      path = with pkgs; [ podman sudo systemd bash coreutils util-linux jq curl ] ++ cfg.extraPackages;
-      serviceConfig = {
-        Type = "simple";
-        User = cfg.user;
-        Group = cfg.group;
-        ExecStart = "${cfg.package}/bin/hal0 bench worker --poll 10";
-        Restart = "on-failure";
-        RestartSec = 10;
-        StandardOutput = "journal";
-        StandardError = "journal";
-        SyslogIdentifier = "hal0-bench-worker";
-        LimitMEMLOCK = cfg.limitMemlock;
-      };
-    };
-
-    systemd.services.hal0-podman-forward = {
-      description = "hal0 podman/Docker FORWARD reconciliation";
-      after = [ "docker.service" ];
-      partOf = [ "docker.service" ];
-      wantedBy = [ "multi-user.target" ];
-      serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
-      script = ''
-        set -eu
-        ${pkgs.iptables}/bin/iptables -L DOCKER-USER -n >/dev/null 2>&1 || exit 0
-        ${pkgs.iproute2}/bin/ip link show podman0 >/dev/null 2>&1 || exit 0
-        ${pkgs.iptables}/bin/iptables -C DOCKER-USER -i podman0 -j ACCEPT 2>/dev/null || ${pkgs.iptables}/bin/iptables -I DOCKER-USER -i podman0 -j ACCEPT
-        ${pkgs.iptables}/bin/iptables -C DOCKER-USER -o podman0 -j ACCEPT 2>/dev/null || ${pkgs.iptables}/bin/iptables -I DOCKER-USER -o podman0 -j ACCEPT
-      '';
-    };
   };
 }
