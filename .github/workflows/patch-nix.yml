@@ -1,0 +1,47 @@
+name: temporary nix module repair
+
+on:
+  push:
+    branches: [codex/nix-companion-fix]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch companion module and remove repair workflow
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path("nix/companion-module.nix")
+          s = p.read_text()
+          replacements = [
+              ("{ config, lib, pkgs, ... }:", "{ config, lib, pkgs, modulesPath, ... }:", 1),
+              ('''imports = [\n    (pkgs.path + \"/nixos/modules/virtualisation/oci-containers.nix\")\n  ];''', '''imports = [ (modulesPath + \"/virtualisation/oci-containers.nix\") ];''', 1),
+              ('''description = \"Run the bundled Hermes Agent companion using the upstream container runtime.\";\n      };''', '''description = \"Run the bundled Hermes Agent companion.\";\n      };\n      runtime = lib.mkOption {\n        type = lib.types.enum [ \"native\" \"container\" ];\n        default = \"native\";\n        description = \"Hermes runtime implementation.\";\n      };''', 1),
+              ("environment.systemPackages = lib.optional he.enable pkgs.podman;", "environment.systemPackages = lib.optional (he.enable && he.runtime == \"container\") pkgs.podman;", 1),
+              ('''environment.etc.\"hal0/hermes/config.yaml\" = lib.mkIf he.enable {''', '''environment.etc.\"hal0/hermes/config.yaml\" = lib.mkIf (he.enable && he.runtime == \"container\") {''', 1),
+              ('''(lib.mkIf he.enable {\n        hal0-hermes = {''', '''(lib.mkIf (he.enable && he.runtime == \"container\") {\n        hal0-hermes = {''', 1),
+              ('''systemd.services.hal0-hermes = lib.mkIf he.enable {''', '''systemd.services.hal0-hermes = lib.mkIf (he.enable && he.runtime == \"container\") {''', 1),
+          ]
+          for old, new, count in replacements:
+              if s.count(old) != count:
+                  raise SystemExit(f"expected {count} occurrence(s), found {s.count(old)} for {old!r}")
+              s = s.replace(old, new, count)
+          p.write_text(s)
+
+          wf = Path(".github/workflows/patch-nix.yml")
+          wf.unlink()
+        
+      - name: Commit repair
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add nix/companion-module.nix .github/workflows/patch-nix.yml
+          git commit -m "nix(companion): fix module import and native Hermes gating"
+          git push origin HEAD:codex/nix-companion-fix
