@@ -29,6 +29,7 @@ let
   pname = "hal0";
   version = "1.0.0-rc.6";
   buildPythonApplication = python312Packages.buildPythonApplication;
+  python = python312Packages.python;
 
   src = ./..;
 
@@ -90,6 +91,12 @@ buildPythonApplication {
     cp -a installer/comfyui/. $out/share/hal0/comfyui/
     cp -a installer/wrappers/. $out/libexec/hal0/
     chmod 0755 $out/libexec/hal0/*
+
+    # Privileged helper scripts execute under sudo's restricted PATH. Bind them
+    # to the exact interpreter shipped in the Nix closure instead of assuming a
+    # mutable /usr/bin/python3 exists on the host.
+    substituteInPlace $out/libexec/hal0/hal0-agentenv \
+      --replace-fail 'python3 -c' '${python}/bin/python -c'
 
     mkdir -p $out/usr-lib/hal0/bin
     for helper in $out/libexec/hal0/*; do
