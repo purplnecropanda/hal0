@@ -1,6 +1,6 @@
-{ pkgs, module }:
+{ pkgs, nixosLib, module }:
 let
-  system = pkgs.lib.nixosSystem {
+  system = nixosLib.nixosSystem {
     system = "x86_64-linux";
     modules = [
       module
