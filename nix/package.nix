@@ -83,6 +83,10 @@ buildPythonApplication {
     cp -a src/hal0/. $out/usr-lib/hal0/current/
     cp -a manifest.json $out/usr-lib/hal0/current/manifest.json
     cp -a pyproject.toml $out/usr-lib/hal0/current/pyproject.toml
+    # hermes_provision resolves installer/agents relative to the immutable
+    # release root. Ship the whole installer tree so the native NixOS bootstrap
+    # can run the same convergent provisioning code as the upstream installer.
+    cp -a installer $out/usr-lib/hal0/current/installer
 
     mkdir -p $out/share/hal0/ui $out/share/hal0/systemd $out/share/hal0/etc-hal0 $out/share/hal0/comfyui $out/libexec/hal0
     cp -a ${ui}/dist $out/share/hal0/ui/dist
@@ -92,9 +96,6 @@ buildPythonApplication {
     cp -a installer/wrappers/. $out/libexec/hal0/
     chmod 0755 $out/libexec/hal0/*
 
-    # Privileged helper scripts execute under sudo's restricted PATH. Bind them
-    # to the exact interpreter shipped in the Nix closure instead of assuming a
-    # mutable /usr/bin/python3 exists on the host.
     substituteInPlace $out/libexec/hal0/hal0-agentenv \
       --replace-fail 'python3 -c' '${python}/bin/python -c'
 
@@ -105,7 +106,7 @@ buildPythonApplication {
     done
 
     runtimePath=${lib.makeBinPath [
-      podman sudo systemd bash coreutils util-linux curl jq git pciutils lshw procps
+      podman sudo systemd bash coreutils util-linux curl jq git pciutils lshw procps python
       fastflowlm xrt
     ]}
 
@@ -126,6 +127,7 @@ buildPythonApplication {
     inherit ui;
     systemdUnits = "$out/share/hal0/systemd";
     installerAssets = "$out/share/hal0/etc-hal0";
+    installerRoot = "$out/usr-lib/hal0/current/installer";
     comfyuiAssets = "$out/share/hal0/comfyui";
     privilegedWrappers = "$out/libexec/hal0";
     amdAiRuntime = {
