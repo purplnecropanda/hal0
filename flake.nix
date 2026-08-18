@@ -47,6 +47,7 @@
                   ./nix/nixos-module.nix
                   ./nix/companion-module.nix
                   ./nix/mutable-config.nix
+                  ./nix/companion-overrides.nix
                 ];
               };
             };
@@ -58,11 +59,16 @@
               ./nix/nixos-module.nix
               ./nix/companion-module.nix
               ./nix/mutable-config.nix
+              ./nix/companion-overrides.nix
             ];
           };
           nixosModules.core = import ./nix/nixos-module.nix;
           nixosModules.companions = {
-            imports = [ ./nix/companion-module.nix ./nix/mutable-config.nix ];
+            imports = [
+              ./nix/companion-module.nix
+              ./nix/mutable-config.nix
+              ./nix/companion-overrides.nix
+            ];
           };
           overlays.default = final: prev: {
             hal0 = final.callPackage ./nix/package.nix {
