@@ -1,6 +1,6 @@
 # NixOS
 
-`hal0` is packaged as a complete NixOS deployment rather than only a Python/UI package. The default module composes the core hal0 service with its companion runtime graph and follows the AMD split used by `noamsto/nix-amd-ai`.
+`hal0` is packaged as a complete NixOS deployment rather than only a Python/UI package. The default module composes the core service, model/bootstrap lifecycle, inference tooling, and companion runtime graph, while `noamsto/nix-amd-ai` remains authoritative for the AMD/NPU substrate.
 
 ## Example
 
@@ -30,8 +30,6 @@
               bindHost = "0.0.0.0";
               modelStore = "/data/models";
               flmModelStore = "/data/flm-models";
-
-              # Enabled by default; each companion can be disabled independently.
               hindsight.enable = true;
               openwebui.enable = true;
               hermes.enable = true;
@@ -44,34 +42,37 @@
 }
 ```
 
-## Runtime graph
+## Deployment graph
 
-The default module declares the major services the upstream installer provisions:
+A fresh NixOS host gets declarative equivalents of the load-bearing installer stages:
 
-- `hal0-api` — core control plane/API.
-- `hal0-agent@<id>` template support for declarative agent instances.
-- `hal0-bench-worker` — dashboard benchmark queue worker.
-- `hal0-bench` and `hal0-bench.timer` — scheduled benchmark sessions.
-- Hindsight memory engine as an OCI companion, with persistent pg0/HF state and its OpenAI-compatible extraction/reflection endpoint pointed at hal0.
-- OpenWebUI as the pinned Podman companion on port 3001, prewired to hal0 chat/STT/TTS endpoints.
-- Hermes Agent as a persistent Podman companion with dashboard/API ports and a declarative custom-provider configuration pointing at hal0's `/v1` endpoint.
-- Podman/Docker FORWARD reconciliation for hosts where Docker is installed alongside Podman.
-- The upstream `hal0-systemctl` and `hal0-benchctl` restricted privileged seams.
+- `hal0-api` control plane and OpenAI-compatible gateway.
+- Quadlet/rootful Podman slot lifecycle and the `hal0-agent@<id>` template.
+- Static slot/profile seed assets copied to writable `/etc/hal0` only when absent, preserving tombstones and operator edits.
+- `hal0 setup --auto --no-pull --no-extensions` bootstrap for capability/slot scaffolding.
+- Hardware-aware brain-model provisioning using the same curated HAL0 model logic as the installer, with optional HF token and model override.
+- Optional Hermes fallback-agent model provisioning.
+- Hindsight memory service with persistent pg0 and HF cache.
+- OpenWebUI companion with chat, STT and TTS routes pointed at hal0.
+- Hermes Agent companion with persistent state, dashboard/API options and Hindsight integration.
+- Benchmark worker plus scheduled benchmark service/timer.
+- ComfyUI model/share setup and its shipped `extra_model_paths.yaml` assets.
+- Rootful Podman host setup and root lingering for stable container netns lifecycle.
+- All shipped privileged helper wrappers, including `hal0-systemctl`, `hal0-agentenv`, `hal0-benchctl`, `hal0-podman-ro`, and `hal0-update`, with narrowly scoped NixOS sudo grants.
+- Release/toolbox manifest and the shipped installer/systemd/config assets.
 
-The inference slot system remains Quadlet/Podman-based, exactly as in the upstream runtime. The AMD/NPU layer remains the responsibility of `nix-amd-ai`, including XRT, AMD-XDNA/FastFlowLM, ROCm, Vulkan, udev, device access, and memlock policy.
+## AMD stack
 
-## Companion runtimes
+`hardware.amd-npu` from `nix-amd-ai` remains the source of truth for XRT, AMD-XDNA/FastFlowLM, ROCm, Vulkan, udev, device access and memlock. The hal0 package consumes the corresponding runtime packages instead of duplicating that platform layer.
 
-Hindsight uses the same 0.7.2 runtime contract used by the current hal0 installer and is persisted under `/var/lib/hal0/memory/hindsight`. OpenWebUI uses the installer-pinned multi-architecture image digest. Hermes uses the upstream `v2026.7.7.2` image and persists its state under `/var/lib/hal0/hermes`.
+## Persistent state
 
-The NixOS module exposes the images, ports, persistent state directories, bind hosts, Hindsight endpoint/model, Hermes model and API key file as options rather than hiding them in an imperative installer script.
+Nix owns immutable package/service definitions. Mutable runtime state lives below `/etc/hal0` and `/var/lib/hal0`, including models, slot/registry state, Hindsight data, OpenWebUI data, Hermes data, and benchmark state.
 
-## Declarative vs mutable state
+`services.hal0.mutableConfig = true` preserves the upstream CLI/migration behavior. Set it to `false` for a strictly declarative configuration posture.
 
-Nix owns service wiring and immutable defaults. Persistent runtime state lives under `/var/lib/hal0`, including model storage, Hindsight pg0/HF state, OpenWebUI data, Hermes data, benchmark state, and slot/registry state. The module exposes typed options plus complete TOML attrsets for advanced/upstream configuration surfaces.
+## Networking and security
 
-`services.hal0.mutableConfig = true` preserves the upstream operator workflow for `hal0 config edit`, migrations, and runtime state updates. Set it to `false` when the host should reject imperative writes to generated `/etc/hal0` configuration.
+The API defaults to loopback. OpenWebUI and Hermes default to loopback listeners as well. Explicitly expose them only when the host/reverse proxy is intended to serve LAN clients.
 
-## Security
-
-The API defaults to loopback under NixOS (`127.0.0.1`) and OpenWebUI/Hermes default to loopback listeners as well; expose them explicitly when a LAN/reverse-proxy deployment is intended. The hal0 service user receives render/video access when those groups exist. Privileged lifecycle operations continue through the narrow helper binaries rather than granting arbitrary systemctl access.
+The API/service user keeps render/video access where those groups exist. Rootful lifecycle and write operations go through the packaged, argument-constrained helper seams rather than arbitrary systemctl or root shell access.
