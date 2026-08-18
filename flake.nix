@@ -51,6 +51,7 @@
                   ./nix/companion-runtime.nix
                   ./nix/host-runtime.nix
                   ./nix/wrapper-sudo.nix
+                  ./nix/hermes-native.nix
                 ];
               };
             };
@@ -66,6 +67,7 @@
               ./nix/companion-runtime.nix
               ./nix/host-runtime.nix
               ./nix/wrapper-sudo.nix
+              ./nix/hermes-native.nix
             ];
           };
           nixosModules.core = import ./nix/nixos-module.nix;
@@ -77,6 +79,7 @@
               ./nix/companion-runtime.nix
               ./nix/host-runtime.nix
               ./nix/wrapper-sudo.nix
+              ./nix/hermes-native.nix
             ];
           };
           overlays.default = final: prev: {
