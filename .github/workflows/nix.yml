@@ -9,24 +9,26 @@ jobs:
   flake-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@v20
-      - uses: DeterminateSystems/magic-nix-cache-action@v8
+      - uses: actions/checkout@v6
+      - uses: DeterminateSystems/nix-installer-action@v22
+      - uses: DeterminateSystems/magic-nix-cache-action@v14
+        with:
+          use-flakehub: false
       - name: Evaluate flake outputs
-        run: nix flake show --json >/dev/null
+        run: nix flake show --json --no-write-lock-file >/dev/null
       - name: Evaluate package
-        run: nix eval .#packages.x86_64-linux.hal0.drvPath --raw
+        run: nix eval .#packages.x86_64-linux.hal0.drvPath --raw --no-write-lock-file
       - name: Evaluate NixOS module
-        run: nix eval --impure --expr 'let f = builtins.getFlake (toString ./.); pkgs = f.inputs.nixpkgs.legacyPackages.x86_64-linux; in (pkgs.nixosSystem { modules = [ f.nixosModules.default { services.hal0.enable = true; services.hal0.package = pkgs.hello; services.hal0.hindsight.enable = false; services.hal0.openwebui.enable = false; services.hal0.hermes.enable = false; services.hal0.benchWorker.enable = false; services.hal0.comfyui.enable = false; } ]; }).config.systemd.services.hal0-api.serviceConfig.ExecStart' --show-trace
+        run: nix eval --impure --expr 'let f = builtins.getFlake (toString ./.); pkgs = f.inputs.nixpkgs.legacyPackages.x86_64-linux; in (pkgs.nixosSystem { modules = [ f.nixosModules.default { services.hal0.enable = true; services.hal0.package = pkgs.hello; services.hal0.hindsight.enable = false; services.hal0.openwebui.enable = false; services.hal0.hermes.enable = false; services.hal0.benchWorker.enable = false; services.hal0.comfyui.enable = false; } ]; }).config.systemd.services.hal0-api.serviceConfig.ExecStart' --show-trace --no-write-lock-file
       - name: Evaluate native Hermes graph
-        run: nix eval --impure --expr 'let f = builtins.getFlake (toString ./.); pkgs = f.inputs.nixpkgs.legacyPackages.x86_64-linux; cfg = (pkgs.nixosSystem { modules = [ f.nixosModules.default { services.hal0.enable = true; services.hal0.package = pkgs.hello; services.hal0.hindsight.enable = false; services.hal0.openwebui.enable = false; services.hal0.benchWorker.enable = false; services.hal0.comfyui.enable = false; } ]; }); in { provision = cfg.config.systemd.services.hal0-hermes-provision.serviceConfig.ExecStart; agent = cfg.config.systemd.services."hal0-agent@".serviceConfig.ExecStart; runtime = cfg.config.services.hal0.hermes.runtime; }' --show-trace
+        run: nix eval --impure --expr 'let f = builtins.getFlake (toString ./.); pkgs = f.inputs.nixpkgs.legacyPackages.x86_64-linux; cfg = (pkgs.nixosSystem { modules = [ f.nixosModules.default { services.hal0.enable = true; services.hal0.package = pkgs.hello; services.hal0.hindsight.enable = false; services.hal0.openwebui.enable = false; services.hal0.benchWorker.enable = false; services.hal0.comfyui.enable = false; } ]; }); in { provision = cfg.config.systemd.services.hal0-hermes-provision.serviceConfig.ExecStart; agent = cfg.config.systemd.services."hal0-agent@".serviceConfig.ExecStart; runtime = cfg.config.services.hal0.hermes.runtime; }' --show-trace --no-write-lock-file
       - name: Build hal0 package
-        run: nix build .#hal0 --no-link --print-build-logs
+        run: nix build .#hal0 --no-link --print-build-logs --no-write-lock-file
 
   source-contract:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Verify Python distribution contract
         run: |
           test "$(python3 - <<'PY'
