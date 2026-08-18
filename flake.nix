@@ -49,6 +49,7 @@
                   ./nix/mutable-config.nix
                   ./nix/companion-overrides.nix
                   ./nix/companion-runtime.nix
+                  ./nix/host-runtime.nix
                 ];
               };
             };
@@ -62,6 +63,7 @@
               ./nix/mutable-config.nix
               ./nix/companion-overrides.nix
               ./nix/companion-runtime.nix
+              ./nix/host-runtime.nix
             ];
           };
           nixosModules.core = import ./nix/nixos-module.nix;
@@ -71,6 +73,7 @@
               ./nix/mutable-config.nix
               ./nix/companion-overrides.nix
               ./nix/companion-runtime.nix
+              ./nix/host-runtime.nix
             ];
           };
           overlays.default = final: prev: {
