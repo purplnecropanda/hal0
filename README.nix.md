@@ -1,9 +1,6 @@
 # NixOS
 
-`hal0` is packaged as a flake and exposes a NixOS module. The flake follows the
-AMD runtime split used by `noamsto/nix-amd-ai`: hal0 owns its control plane,
-Podman/Quadlet lifecycle, model/config state and UI, while the AMD/NPU runtime
-is supplied by `nix-amd-ai`.
+`hal0` is packaged as a NixOS deployment rather than only a Python/UI package. The default module composes the core hal0 service with its companion runtime graph and follows the AMD split used by `noamsto/nix-amd-ai`.
 
 ## Example
 
@@ -34,14 +31,11 @@ is supplied by `nix-amd-ai`.
               modelStore = "/data/models";
               flmModelStore = "/data/flm-models";
 
-              # Complete slot/schema fields can be represented here.
-              slotConfigs.primary = {
-                name = "primary";
-                port = 8081;
-                device = "gpu-vulkan";
-                n_gpu_layers = -1;
-                model.default = "my-model";
-              };
+              # These are enabled by default and can be disabled independently.
+              hindsight.enable = true;
+              openwebui.enable = true;
+              hermes.enable = true;
+              benchWorker.enable = true;
             };
           })
         ];
@@ -50,52 +44,30 @@ is supplied by `nix-amd-ai`.
 }
 ```
 
-## Feature coverage
+## Runtime graph
 
-The Nix package preserves the repository's complete Python package and bundled
-assets rather than selecting only the API server. It includes the CLI surfaces
-for slots, models, registry, profiles, providers/upstreams, capabilities,
-MCP, memory, board, ComfyUI, agents, auth, setup/migration, diagnostics,
-benchmarking, chat and system information, plus the dashboard build.
+The default module now declares the major services the upstream installer provisions:
 
-The NixOS module exposes deployment controls directly and provides full-schema
-escape hatches:
+- `hal0-api` — core control plane/API.
+- rootless `hal0-agent@<id>` template support for declarative agent instances.
+- `hal0-bench-worker` — dashboard benchmark queue worker.
+- `hal0-bench` and `hal0-bench.timer` — scheduled benchmark sessions.
+- Hindsight memory engine as an OCI companion, with persistent pg0/HF state and its OpenAI-compatible extraction/reflection endpoint pointed at hal0.
+- OpenWebUI as the pinned Podman companion on port 3001, prewired to hal0 chat/STT/TTS endpoints.
+- Hermes Agent as a persistent Podman companion with dashboard/API ports and a declarative custom-provider configuration pointing at hal0's `/v1` endpoint.
+- Podman/Docker FORWARD reconciliation for hosts where Docker is installed alongside Podman.
+- The upstream `hal0-systemctl` and `hal0-benchctl` restricted privileged seams.
 
-- `services.hal0.settings` → `hal0.toml`
-- `services.hal0.providers` → `providers.toml`
-- `services.hal0.upstreams` → `upstreams.toml`
-- `services.hal0.profiles` → `profiles.toml`
-- `services.hal0.capabilities` → `capabilities.toml`
-- `services.hal0.slotConfigs` → `slots/*.toml`
-- `services.hal0.extraConfigFiles` → additional `/etc/hal0/*` files
+The inference slot system remains Quadlet/Podman-based, exactly as in the upstream runtime. The AMD/NPU layer remains the responsibility of `nix-amd-ai`, including XRT, AMD-XDNA/FastFlowLM, ROCm, Vulkan, udev, device access, and memlock policy.
 
-This is intentional: hal0's Pydantic schema evolves frequently, so modelling
-only today's fields in Nix would make the package lag behind upstream. The
-module's typed options cover common service/runtime controls while the
-attrset/TOML interface keeps the complete upstream configuration surface
-available.
+The companion images are intentionally configurable. Hindsight defaults to the 0.7.2 image used by hal0's current installer contract; OpenWebUI uses the release-pinned image digest shipped by the installer; Hermes defaults to the upstream v2026.7.7.2 image corresponding to the currently supported Hermes release line.
 
-`services.hal0.enableBench` enables the repository's scheduled benchmark unit
-and timer. The package also ships the audited `hal0-benchctl` and
-`hal0-systemctl` privileged seams.
+## Declarative vs mutable state
 
-## AMD/NPU integration
+Nix owns service wiring and immutable defaults. Persistent runtime state lives under `/var/lib/hal0`, including model storage, Hindsight pg0/HF state, OpenWebUI data, Hermes data, benchmark state, and slot/registry state. The module exposes typed options plus complete TOML attrsets for advanced/upstream configuration surfaces.
 
-`hardware.amd-npu` remains the source of truth for XRT, AMD-XDNA/FLM, ROCm,
-Vulkan, udev, kernel/NPU setup and render/video permissions. The hal0 module
-consumes runtime packages from `nix-amd-ai` and does not duplicate that
-hardware stack.
+`services.hal0.mutableConfig = true` preserves the upstream operator workflow for `hal0 config edit`, migrations, and runtime state updates. Set it to `false` when the host should reject imperative writes to generated `/etc/hal0` configuration.
 
-For NPU-capable systems, import both modules and enable the desired
-`hardware.amd-npu` features. For GPU-only systems, use the corresponding
-`nix-amd-ai` GPU configuration and leave the NPU path disabled.
+## Security
 
-## Validation
-
-The repository includes a NixOS module test that evaluates the configuration
-surface, creates a declarative slot and agent, verifies the benchmark timer,
-checks generated `/etc/hal0` files, and checks the privileged seam.
-
-The package still requires the generated `npmDepsHash` to be materialized by a
-network-enabled Nix build before the first release/merge. No fabricated fixed
-output hash is used.
+The API defaults to loopback under NixOS (`127.0.0.1`) and OpenWebUI/Hermes default to loopback listeners as well; expose them explicitly when a LAN/reverse-proxy deployment is intended. The hal0 service user receives render/video access when those groups exist. Privileged lifecycle operations continue through the narrow helper binaries rather than granting arbitrary systemctl access.
