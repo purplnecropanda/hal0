@@ -1,6 +1,6 @@
 # NixOS
 
-`hal0` is packaged as a NixOS deployment rather than only a Python/UI package. The default module composes the core hal0 service with its companion runtime graph and follows the AMD split used by `noamsto/nix-amd-ai`.
+`hal0` is packaged as a complete NixOS deployment rather than only a Python/UI package. The default module composes the core hal0 service with its companion runtime graph and follows the AMD split used by `noamsto/nix-amd-ai`.
 
 ## Example
 
@@ -31,7 +31,7 @@
               modelStore = "/data/models";
               flmModelStore = "/data/flm-models";
 
-              # These are enabled by default and can be disabled independently.
+              # Enabled by default; each companion can be disabled independently.
               hindsight.enable = true;
               openwebui.enable = true;
               hermes.enable = true;
@@ -46,10 +46,10 @@
 
 ## Runtime graph
 
-The default module now declares the major services the upstream installer provisions:
+The default module declares the major services the upstream installer provisions:
 
 - `hal0-api` — core control plane/API.
-- rootless `hal0-agent@<id>` template support for declarative agent instances.
+- `hal0-agent@<id>` template support for declarative agent instances.
 - `hal0-bench-worker` — dashboard benchmark queue worker.
 - `hal0-bench` and `hal0-bench.timer` — scheduled benchmark sessions.
 - Hindsight memory engine as an OCI companion, with persistent pg0/HF state and its OpenAI-compatible extraction/reflection endpoint pointed at hal0.
@@ -60,7 +60,11 @@ The default module now declares the major services the upstream installer provis
 
 The inference slot system remains Quadlet/Podman-based, exactly as in the upstream runtime. The AMD/NPU layer remains the responsibility of `nix-amd-ai`, including XRT, AMD-XDNA/FastFlowLM, ROCm, Vulkan, udev, device access, and memlock policy.
 
-The companion images are intentionally configurable. Hindsight defaults to the 0.7.2 image used by hal0's current installer contract; OpenWebUI uses the release-pinned image digest shipped by the installer; Hermes defaults to the upstream v2026.7.7.2 image corresponding to the currently supported Hermes release line.
+## Companion runtimes
+
+Hindsight uses the same 0.7.2 runtime contract used by the current hal0 installer and is persisted under `/var/lib/hal0/memory/hindsight`. OpenWebUI uses the installer-pinned multi-architecture image digest. Hermes uses the upstream `v2026.7.7.2` image and persists its state under `/var/lib/hal0/hermes`.
+
+The NixOS module exposes the images, ports, persistent state directories, bind hosts, Hindsight endpoint/model, Hermes model and API key file as options rather than hiding them in an imperative installer script.
 
 ## Declarative vs mutable state
 
