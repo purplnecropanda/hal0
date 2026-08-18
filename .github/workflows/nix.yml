@@ -43,8 +43,14 @@ jobs:
           test -f installer/agents/hermes/requirements.txt
 
       - uses: DeterminateSystems/nix-installer-action@v22
+        with:
+          trust-runner-user: true
+          extra-conf: |
+            trusted-substituters = http://127.0.0.1:37515
 
       - uses: DeterminateSystems/magic-nix-cache-action@v14
+        with:
+          listen: 127.0.0.1:37515
 
       - name: Diagnose Nix and cache configuration
         run: |
@@ -53,6 +59,8 @@ jobs:
           nix show-config | grep -E '^(substituters|extra-substituters|trusted-substituters|trusted-public-keys|extra-trusted-substituters) ?=' || true
           echo '--- localhost Magic Nix Cache configuration ---'
           nix show-config | grep '127\.0\.0\.1:37515' || true
+          echo '--- daemon configuration ---'
+          sudo nix show-config | grep -E '^(substituters|extra-substituters|trusted-substituters|trusted-public-keys|extra-trusted-substituters) ?=' || true
 
       - name: Evaluate flake outputs
         run: nix flake show --json --no-write-lock-file >/dev/null
