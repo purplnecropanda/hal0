@@ -1,6 +1,6 @@
-{ pkgs, module }:
+{ pkgs, nixosLib, module }:
 let
-  system = pkgs.lib.nixosSystem {
+  system = nixosLib.nixosSystem {
     system = "x86_64-linux";
     modules = [
       ./../modules/hal0/core.nix
@@ -20,6 +20,6 @@ let
 in
 pkgs.runCommand "hal0-module-companions-check" {} ''
   test '${toString system.config.virtualisation.oci-containers.backend}' = podman
-  test -n '${system.config.systemd.tmpfiles.rules}'
+  test -n '${toString (builtins.length system.config.systemd.tmpfiles.rules)}'
   touch $out
 ''
