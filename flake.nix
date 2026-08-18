@@ -16,9 +16,7 @@
 
         perSystem = { pkgs, system, ... }:
           let
-            amdAiOverlay = inputs.nix-amd-ai.overlays.default;
             amdAiPkgs = inputs.nix-amd-ai.packages.${system};
-
             hal0-assets = pkgs.callPackage ./pkgs/hal0-assets { };
             hal0-ui = pkgs.callPackage ./pkgs/hal0-ui { };
             hal0-core = pkgs.callPackage ./pkgs/hal0-core { };
@@ -27,15 +25,6 @@
           {
             packages = {
               inherit hal0 hal0-core hal0-ui hal0-assets;
-              inherit (amdAiPkgs)
-                fastflowlm
-                xrt
-                xrt-plugin-amdxdna
-                llama-cpp-vulkan
-                llama-cpp-rocm
-                whisper-cpp-vulkan
-                stable-diffusion-cpp-vulkan
-                stable-diffusion-cpp-rocm;
               default = hal0;
             };
 
@@ -90,9 +79,10 @@
           nixosModules.default = ./modules/hal0;
           nixosModules.core = ./modules/hal0/core.nix;
           nixosModules.companions = ./modules/hal0/companions.nix;
+          nixosModules.hermes = ./modules/hal0/hermes.nix;
 
           overlays.default = final: prev:
-            (amdAiOverlay final prev) // {
+            (inputs.nix-amd-ai.overlays.default final prev) // {
               hal0-assets = final.callPackage ./pkgs/hal0-assets { };
               hal0-ui = final.callPackage ./pkgs/hal0-ui { };
               hal0-core = final.callPackage ./pkgs/hal0-core { };
