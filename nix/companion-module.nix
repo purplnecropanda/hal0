@@ -103,6 +103,12 @@ in
 
     environment.systemPackages = lib.optional he.enable pkgs.podman;
 
+    # The core module deliberately keeps service construction small and
+    # declarative. Run the installed hal0 executable itself rather than a
+    # separate nixpkgs uvicorn environment; the package carries hal0's complete
+    # Python runtime closure and its FHS-relative resource hooks.
+    systemd.services.hal0-api.serviceConfig.ExecStart = lib.mkForce "${cfg.package}/bin/hal0 serve --port ${toString cfg.port}";
+
     systemd.tmpfiles.rules = [
       "d ${h.dataDir} 2775 ${cfg.user} ${cfg.group} - -"
       "d ${ow.dataDir} 2775 ${cfg.user} ${cfg.group} - -"
@@ -186,10 +192,11 @@ in
           autoStart = true;
           ports = [
             "${he.bindHost}:${toString he.dashboardPort}:9119"
-          ] ++ lib.optional (he.bindHost != "") "${he.bindHost}:${toString he.apiPort}:8642";
+            "${he.bindHost}:${toString he.apiPort}:8642"
+          ];
           volumes = [
             "${he.dataDir}:/opt/data:rw"
-            "/etc/hal0/hermes/config.yaml:/opt/data/config.yaml:rw"
+            "/etc/hal0/hermes/config.yaml:/opt/data/config.yaml:ro"
             "/var/lib/hal0/skills:/opt/data/skills:rw"
           ];
           environment = {
@@ -252,7 +259,7 @@ in
         Type = "simple";
         User = cfg.user;
         Group = cfg.group;
-        ExecStart = "${hal0}/bin/hal0 bench worker --poll 10";
+        ExecStart = "${cfg.package}/bin/hal0 bench worker --poll 10";
         Restart = "on-failure";
         RestartSec = 10;
         StandardOutput = "journal";
