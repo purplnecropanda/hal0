@@ -5,6 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-parts.url = "github:hercules-ci/flake-parts";
     nix-amd-ai.url = "github:noamsto/nix-amd-ai";
+    flake-compat.flake = false;
     flake-compat.url = "github:edolstra/flake-compat";
   };
 
@@ -16,7 +17,7 @@
         perSystem = { pkgs, system, ... }:
           let
             amdAiPkgs = inputs.nix-amd-ai.packages.${system};
-            hal0 = pkgs.callPackage ./nix/package.nix {
+            hal0 = pkgs.callPackage ./pkgs/hal0 {
               inherit (amdAiPkgs)
                 fastflowlm
                 xrt
@@ -37,40 +38,18 @@
 
             checks.nixos-module = import ./nix/checks/module-eval.nix {
               inherit pkgs;
-              module = ./nix/nixos-module.nix;
+              module = ./modules/hal0;
             };
 
             checks.nixos-default-module = import ./nix/checks/module-eval.nix {
               inherit pkgs;
-              module = {
-                imports = [
-                  ./nix/nixos-module.nix
-                  ./nix/companion-module-fixed.nix
-                  ./nix/mutable-config.nix
-                  ./nix/companion-overrides.nix
-                  ./nix/companion-runtime.nix
-                  ./nix/host-runtime.nix
-                  ./nix/wrapper-sudo.nix
-                  ./nix/hermes-native.nix
-                ];
-              };
+              module = ./modules/hal0;
             };
           };
 
         flake = {
-          nixosModules.default = {
-            imports = [
-              ./nix/nixos-module.nix
-              ./nix/companion-module-fixed.nix
-              ./nix/mutable-config.nix
-              ./nix/companion-overrides.nix
-              ./nix/companion-runtime.nix
-              ./nix/host-runtime.nix
-              ./nix/wrapper-sudo.nix
-              ./nix/hermes-native.nix
-            ];
-          };
-          nixosModules.core = import ./nix/nixos-module.nix;
+          nixosModules.default = ./modules/hal0;
+          nixosModules.core = ./nix/nixos-module.nix;
           nixosModules.companions = {
             imports = [
               ./nix/companion-module-fixed.nix
@@ -83,7 +62,7 @@
             ];
           };
           overlays.default = final: prev: {
-            hal0 = final.callPackage ./nix/package.nix {
+            hal0 = final.callPackage ./pkgs/hal0 {
               inherit (inputs.nix-amd-ai.packages.${final.system})
                 fastflowlm
                 xrt
