@@ -36,7 +36,7 @@ let
   ui = buildNpmPackage {
     pname = "hal0-ui";
     inherit version src;
-    sourceRoot = "source/ui";
+    npmWorkspace = "ui";
     npmDepsHash = lib.fakeHash;
     nodejs = nodejs_24;
     npmBuildScript = "build";
