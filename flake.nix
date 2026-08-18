@@ -16,7 +16,6 @@
 
         perSystem = { pkgs, system, ... }:
           let
-            amdAiPkgs = inputs.nix-amd-ai.packages.${system};
             hal0-assets = pkgs.callPackage ./pkgs/hal0-assets { };
             hal0-ui = pkgs.callPackage ./pkgs/hal0-ui { };
             hal0-core = pkgs.callPackage ./pkgs/hal0-core { };
@@ -58,18 +57,22 @@
 
               nixos-module-core = import ./checks/module-core.nix {
                 inherit pkgs;
+                nixosLib = inputs.nixpkgs.lib;
                 module = ./modules/hal0/core.nix;
               };
               nixos-module-companions = import ./checks/module-companions.nix {
                 inherit pkgs;
+                nixosLib = inputs.nixpkgs.lib;
                 module = ./modules/hal0/companions.nix;
               };
               nixos-module-hermes = import ./checks/module-hermes.nix {
                 inherit pkgs;
+                nixosLib = inputs.nixpkgs.lib;
                 module = ./modules/hal0/hermes.nix;
               };
               nixos-module-rendered = import ./checks/module-rendered.nix {
                 inherit pkgs;
+                nixosLib = inputs.nixpkgs.lib;
                 module = ./modules/hal0;
               };
             };
