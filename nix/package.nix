@@ -1,7 +1,7 @@
 { lib
 , buildNpmPackage
 , python312Packages
-, nodejs_20
+, nodejs_24
 , makeWrapper
 , podman
 , systemd
@@ -38,7 +38,7 @@ let
     inherit version src;
     sourceRoot = "source/ui";
     npmDepsHash = "sha256-REPLACE_WITH_NPM_DEPS_HASH";
-    nodejs = nodejs_20;
+    nodejs = nodejs_24;
     npmBuildScript = "build";
     installPhase = ''
       runHook preInstall
@@ -83,9 +83,6 @@ buildPythonApplication {
     cp -a src/hal0/. $out/usr-lib/hal0/current/
     cp -a manifest.json $out/usr-lib/hal0/current/manifest.json
     cp -a pyproject.toml $out/usr-lib/hal0/current/pyproject.toml
-    # hermes_provision resolves installer/agents relative to the immutable
-    # release root. Ship the whole installer tree so the native NixOS bootstrap
-    # can run the same convergent provisioning code as the upstream installer.
     cp -a installer $out/usr-lib/hal0/current/installer
 
     mkdir -p $out/share/hal0/ui $out/share/hal0/systemd $out/share/hal0/etc-hal0 $out/share/hal0/comfyui $out/libexec/hal0
