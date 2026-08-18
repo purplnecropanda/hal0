@@ -1,4 +1,4 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, modulesPath, ... }:
 
 let
   cfg = config.services.hal0;
@@ -22,9 +22,7 @@ let
   pythonPath = "${cfg.package}/${python.sitePackages}";
 in
 {
-  imports = [
-    (pkgs.path + "/nixos/modules/virtualisation/oci-containers.nix")
-  ];
+  imports = [ (modulesPath + "/virtualisation/oci-containers.nix") ];
 
   options.services.hal0 = {
     staticSeeds.enable = lib.mkOption {
@@ -134,7 +132,12 @@ in
       enable = lib.mkOption {
         type = lib.types.bool;
         default = true;
-        description = "Run the bundled Hermes Agent companion using the upstream container runtime.";
+        description = "Run the bundled Hermes Agent companion.";
+      };
+      runtime = lib.mkOption {
+        type = lib.types.enum [ "native" "container" ];
+        default = "native";
+        description = "Hermes runtime implementation.";
       };
       image = lib.mkOption { type = lib.types.str; default = hermesImage; };
       dataDir = lib.mkOption { type = lib.types.path; default = "/var/lib/hal0/hermes"; };
@@ -184,7 +187,7 @@ in
   config = lib.mkIf enabled {
     virtualisation.oci-containers.backend = "podman";
 
-    environment.systemPackages = lib.optional he.enable pkgs.podman;
+    environment.systemPackages = lib.optional (he.enable && he.runtime == "container") pkgs.podman;
 
     # The core module deliberately keeps service construction small. Run the
     # installed hal0 executable itself so the full packaged dependency closure
@@ -203,7 +206,7 @@ in
       "d ${comfy.modelsRoot}/custom_nodes 2775 ${cfg.user} ${cfg.group} - -"
     ];
 
-    environment.etc."hal0/hermes/config.yaml" = lib.mkIf he.enable {
+    environment.etc."hal0/hermes/config.yaml" = lib.mkIf (he.enable && he.runtime == "container") {
       mode = "0644";
       text = ''
         model:
@@ -392,7 +395,7 @@ in
           extraOptions = [ "--add-host=${hostGateway}" "--security-opt" "apparmor=unconfined" ];
         };
       })
-      (lib.mkIf he.enable {
+      (lib.mkIf (he.enable && he.runtime == "container") {
         hal0-hermes = {
           image = he.image;
           autoStart = true;
@@ -453,7 +456,7 @@ in
       };
     };
 
-    systemd.services.hal0-hermes = lib.mkIf he.enable {
+    systemd.services.hal0-hermes = lib.mkIf (he.enable && he.runtime == "container") {
       description = "hal0 Hermes Agent companion service";
       after = [ "podman-hal0-hermes.service" "hal0-api.service" ];
       wants = [ "hal0-api.service" ];
