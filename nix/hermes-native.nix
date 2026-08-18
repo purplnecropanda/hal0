@@ -5,10 +5,6 @@ let
   he = cfg.hermes;
   native = he.runtime == "native";
   hal0AgentUnit = "hal0-agent@hermes.service";
-  helperPath = lib.makeBinPath [
-    pkgs.bash pkgs.coreutils pkgs.curl pkgs.git pkgs.gnugrep pkgs.gnused
-    pkgs.gawk pkgs.findutils pkgs.which pkgs.python312Packages.python
-  ];
 in
 {
   options.services.hal0.hermes.runtime = lib.mkOption {
@@ -53,9 +49,8 @@ in
         HERMES_VENV = "/var/lib/hal0/venvs/hermes";
         HAL0_AGENT_ID = "hermes";
       } // cfg.environment;
-      path = [
-        pkgs.bash pkgs.coreutils pkgs.curl pkgs.git pkgs.gnugrep pkgs.gnused
-        pkgs.gawk pkgs.findutils pkgs.which pkgs.python312Packages.python
+      path = with pkgs; [
+        bash coreutils curl git gnugrep gnused gawk findutils which python312Packages.python
       ] ++ cfg.extraPackages;
       serviceConfig = {
         Type = "oneshot";
@@ -84,21 +79,13 @@ in
       }
     ]);
 
+    # The companion module always defines the OCI wrapper, so explicitly
+    # disable that host unit when native mode is selected. The OCI container
+    # itself is also prevented from auto-starting below.
+    systemd.services.hal0-hermes.enable = lib.mkIf native false;
+
     virtualisation.oci-containers.containers.hal0-hermes = lib.mkIf he.enable {
       autoStart = lib.mkForce (!native);
-    };
-
-    systemd.services.hal0-hermes = lib.mkIf (he.enable && !native) {
-      description = "hal0 Hermes Agent OCI fallback";
-      after = [ "podman-hal0-hermes.service" "hal0-api.service" ];
-      wants = [ "hal0-api.service" ];
-      wantedBy = [ "multi-user.target" ];
-      serviceConfig = {
-        Type = "oneshot";
-        ExecStart = "${pkgs.systemd}/bin/systemctl start podman-hal0-hermes.service";
-        ExecStop = "${pkgs.systemd}/bin/systemctl stop podman-hal0-hermes.service";
-        RemainAfterExit = true;
-      };
     };
   };
 }
