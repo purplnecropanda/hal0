@@ -83,9 +83,6 @@ buildPythonApplication {
   postInstall = ''
     mkdir -p $out/usr-lib/hal0/current
     cp -a src/hal0/. $out/usr-lib/hal0/current/
-    # Runtime code treats /usr/lib/hal0/current as a shipped release tree,
-    # not merely a Python site-packages directory. Preserve release metadata
-    # consumed by hardware/toolbox/update paths alongside the module itself.
     cp -a manifest.json $out/usr-lib/hal0/current/manifest.json
     cp -a pyproject.toml $out/usr-lib/hal0/current/pyproject.toml
 
@@ -94,13 +91,7 @@ buildPythonApplication {
     cp -a installer/systemd/. $out/share/hal0/systemd/
     cp -a installer/etc-hal0/. $out/share/hal0/etc-hal0/
     cp -a installer/comfyui/. $out/share/hal0/comfyui/
-    cp -a installer/wrappers/hal0-systemctl $out/libexec/hal0/hal0-systemctl
-    if [ -f installer/wrappers/hal0-benchctl ]; then
-      cp -a installer/wrappers/hal0-benchctl $out/libexec/hal0/hal0-benchctl
-    fi
-    if [ -f installer/wrappers/hal0-agentenv ]; then
-      cp -a installer/wrappers/hal0-agentenv $out/libexec/hal0/hal0-agentenv
-    fi
+    cp -a installer/wrappers/. $out/libexec/hal0/
     chmod 0755 $out/libexec/hal0/*
 
     runtimePath=${lib.makeBinPath [
