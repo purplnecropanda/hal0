@@ -38,6 +38,14 @@ pkgs.testers.nixosTest {
         };
         agents.hermes.enable = true;
         enableBench = true;
+
+        # Companion services are covered by the companion module but are
+        # disabled in this structural VM test so CI never downloads multi-GB
+        # third-party OCI images.
+        hindsight.enable = false;
+        openwebui.enable = false;
+        hermes.enable = false;
+        benchWorker.enable = false;
       };
 
       virtualisation.podman.enable = true;
