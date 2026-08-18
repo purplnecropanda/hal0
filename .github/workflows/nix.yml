@@ -17,121 +17,191 @@ jobs:
     name: Detect Nix changes
     runs-on: ubuntu-latest
     outputs:
-      package: ${{ steps.filter.outputs.package }}
+      assets: ${{ steps.filter.outputs.assets }}
+      ui: ${{ steps.filter.outputs.ui }}
+      core: ${{ steps.filter.outputs.core }}
+      modules: ${{ steps.filter.outputs.modules }}
+      compose: ${{ steps.filter.outputs.compose }}
+      any: ${{ steps.filter.outputs.any }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
-            package:
+            assets:
+              - 'pkgs/hal0-assets/**'
+              - 'installer/**'
+              - 'packaging/**'
+              - 'manifest.json'
+            ui:
+              - 'pkgs/hal0-ui/**'
+              - 'ui/**'
+            core:
+              - 'pkgs/hal0-core/**'
+              - 'src/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+            modules:
+              - 'modules/**'
+              - 'nix/**'
+            compose:
+              - 'pkgs/hal0/**'
+              - 'pkgs/default.nix'
+              - 'flake.nix'
+              - 'flake.lock'
+            any:
               - 'flake.nix'
               - 'flake.lock'
               - 'pkgs/**'
               - 'modules/**'
+              - 'checks/**'
               - 'nix/**'
-              - 'pyproject.toml'
-              - 'uv.lock'
               - 'src/**'
               - 'ui/**'
               - 'installer/**'
               - 'packaging/**'
               - 'manifest.json'
+              - 'pyproject.toml'
+              - 'uv.lock'
 
-  validate:
-    name: Nix evaluation
+  flake-eval:
+    name: Flake evaluation
     needs: changes
-    if: needs.changes.outputs.package == 'true' || github.event_name == 'push'
+    if: needs.changes.outputs.any == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-
       - uses: nixbuild/nix-quick-install-action@v35
         with:
           nix_conf: |
             experimental-features = nix-command flakes
             keep-env-derivations = true
             keep-outputs = true
-
-      - name: Restore and save Nix store
-        uses: nix-community/cache-nix-action@v7
+      - uses: nix-community/cache-nix-action@v7
         with:
-          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.nix', 'flake.lock', 'pkgs/**/*.nix', 'modules/**/*.nix', 'nix/**/*.nix') }}
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock') }}
           restore-prefixes-first-match: nix-${{ runner.os }}-
           gc-max-store-size-linux: 4294967296
-
       - name: Evaluate flake outputs
         run: nix flake show --json --no-write-lock-file >/dev/null
 
-      - name: Evaluate package
-        run: nix eval .#packages.x86_64-linux.hal0.drvPath --raw --no-write-lock-file
-
-      - name: Evaluate NixOS module
-        run: >-
-          nix eval --impure
-          --expr 'let f = builtins.getFlake (toString ./.); pkgs = f.inputs.nixpkgs.legacyPackages.x86_64-linux; in
-          (f.inputs.nixpkgs.lib.nixosSystem {
-            system = "x86_64-linux";
-            modules = [
-              f.nixosModules.default
-              {
-                services.hal0.enable = true;
-                services.hal0.package = pkgs.hello;
-                services.hal0.hindsight.enable = false;
-                services.hal0.openwebui.enable = false;
-                services.hal0.hermes.enable = false;
-                services.hal0.benchWorker.enable = false;
-                services.hal0.comfyui.enable = false;
-              }
-            ];
-          }).config.systemd.services.hal0-api.serviceConfig.ExecStart'
-          --show-trace --no-write-lock-file
-
-      - name: Evaluate native Hermes graph
-        run: >-
-          nix eval --impure
-          --expr 'let f = builtins.getFlake (toString ./.); pkgs = f.inputs.nixpkgs.legacyPackages.x86_64-linux; cfg =
-          (f.inputs.nixpkgs.lib.nixosSystem {
-            system = "x86_64-linux";
-            modules = [
-              f.nixosModules.default
-              {
-                services.hal0.enable = true;
-                services.hal0.package = pkgs.hello;
-                services.hal0.hindsight.enable = false;
-                services.hal0.openwebui.enable = false;
-                services.hal0.benchWorker.enable = false;
-                services.hal0.comfyui.enable = false;
-              }
-            ];
-          }); in {
-            provision = cfg.config.systemd.services.hal0-hermes-provision.serviceConfig.ExecStart;
-            agent = cfg.config.systemd.services."hal0-agent@".serviceConfig.ExecStart;
-            runtime = cfg.config.services.hal0.hermes.runtime;
-          }'
-          --show-trace --no-write-lock-file
-
-  build:
-    name: Build Nix package
-    needs: [changes, validate]
-    if: needs.changes.outputs.package == 'true' || github.event_name == 'push'
+  package-assets:
+    name: Package assets
+    needs: [changes, flake-eval]
+    if: needs.changes.outputs.assets == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-
       - uses: nixbuild/nix-quick-install-action@v35
+      - uses: nix-community/cache-nix-action@v7
         with:
-          nix_conf: |
-            experimental-features = nix-command flakes
-            keep-env-derivations = true
-            keep-outputs = true
-
-      - name: Restore and save Nix store
-        uses: nix-community/cache-nix-action@v7
-        with:
-          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.nix', 'flake.lock', 'pkgs/**/*.nix', 'modules/**/*.nix', 'nix/**/*.nix') }}
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock') }}
           restore-prefixes-first-match: nix-${{ runner.os }}-
           gc-max-store-size-linux: 4294967296
+      - run: nix build .#hal0-assets --no-link --print-build-logs --no-write-lock-file
 
-      - name: Build hal0 package
-        run: nix build .#hal0 --no-link --print-build-logs --no-write-lock-file
+  package-ui:
+    name: Package UI
+    needs: [changes, flake-eval]
+    if: needs.changes.outputs.ui == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: nixbuild/nix-quick-install-action@v35
+      - uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+          gc-max-store-size-linux: 4294967296
+      - run: nix build .#hal0-ui --no-link --print-build-logs --no-write-lock-file
+
+  package-core:
+    name: Package Python core
+    needs: [changes, flake-eval]
+    if: needs.changes.outputs.core == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: nixbuild/nix-quick-install-action@v35
+      - uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+          gc-max-store-size-linux: 4294967296
+      - run: nix build .#hal0-core --no-link --print-build-logs --no-write-lock-file
+
+  package-composition:
+    name: Compose hal0
+    needs: [changes, flake-eval, package-assets, package-ui, package-core]
+    if: needs.changes.outputs.compose == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: nixbuild/nix-quick-install-action@v35
+      - uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+          gc-max-store-size-linux: 4294967296
+      - run: nix build .#hal0 --no-link --print-build-logs --no-write-lock-file
+
+  module-core:
+    name: Evaluate core module
+    needs: [changes, flake-eval]
+    if: needs.changes.outputs.modules == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: nixbuild/nix-quick-install-action@v35
+      - uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+          gc-max-store-size-linux: 4294967296
+      - run: nix build .#checks.x86_64-linux.nixos-module-core --no-link --print-build-logs --no-write-lock-file
+
+  module-companions:
+    name: Evaluate companion modules
+    needs: [changes, flake-eval]
+    if: needs.changes.outputs.modules == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: nixbuild/nix-quick-install-action@v35
+      - uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+          gc-max-store-size-linux: 4294967296
+      - run: nix build .#checks.x86_64-linux.nixos-module-companions --no-link --print-build-logs --no-write-lock-file
+
+  module-hermes:
+    name: Evaluate Hermes module
+    needs: [changes, flake-eval]
+    if: needs.changes.outputs.modules == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: nixbuild/nix-quick-install-action@v35
+      - uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+          gc-max-store-size-linux: 4294967296
+      - run: nix build .#checks.x86_64-linux.nixos-module-hermes --no-link --print-build-logs --no-write-lock-file
+
+  module-rendered:
+    name: Render systemd module
+    needs: [changes, flake-eval]
+    if: needs.changes.outputs.modules == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: nixbuild/nix-quick-install-action@v35
+      - uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+          gc-max-store-size-linux: 4294967296
+      - run: nix build .#checks.x86_64-linux.nixos-module-rendered --no-link --print-build-logs --no-write-lock-file
