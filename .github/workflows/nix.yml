@@ -133,7 +133,7 @@ jobs:
 
   package-composition:
     name: Compose hal0
-    needs: [changes, flake-eval, package-assets, package-ui, package-core]
+    needs: [changes, flake-eval]
     if: needs.changes.outputs.compose == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
