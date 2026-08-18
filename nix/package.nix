@@ -1,5 +1,6 @@
 { lib
 , buildNpmPackage
+, importNpmLock
 , python312Packages
 , nodejs_24
 , makeWrapper
@@ -35,9 +36,10 @@ let
 
   ui = buildNpmPackage {
     pname = "hal0-ui";
-    inherit version src;
-    npmWorkspace = "ui";
-    npmDepsHash = lib.fakeHash;
+    version = version;
+    src = ./../ui;
+    npmDeps = importNpmLock { npmRoot = ./../ui; };
+    npmConfigHook = importNpmLock.npmConfigHook;
     nodejs = nodejs_24;
     npmBuildScript = "build";
     installPhase = ''
